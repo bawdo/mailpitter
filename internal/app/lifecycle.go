@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/bawdo/mailpitter/internal/docker"
 )
@@ -29,6 +30,7 @@ func (a *App) Start(ctx context.Context) error {
 	if err := a.caddy.Register(ctx, "mailpit", Domain, UIPort); err != nil {
 		return CaddyShackf(err, "register %s", Domain)
 	}
+	_, _ = fmt.Fprintln(a.notices, "registered mailpit.test with caddy_shack")
 	return nil
 }
 
@@ -38,6 +40,7 @@ func (a *App) Stop(ctx context.Context) error {
 	if err := a.caddy.Deregister(ctx, "mailpit"); err != nil {
 		return CaddyShackf(err, "deregister mailpit")
 	}
+	_, _ = fmt.Fprintln(a.notices, "deregistered mailpit.test from caddy_shack")
 	if err := a.docker.DaemonReachable(); err != nil {
 		return DockerUnreachablef("%v", err)
 	}

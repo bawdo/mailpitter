@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/bawdo/mailpitter/internal/caddyshack"
@@ -104,6 +105,7 @@ func (a *App) Install(ctx context.Context, in InstallInput) error {
 		}
 		return CaddyShackf(err, "register %s", Domain)
 	}
+	_, _ = fmt.Fprintln(a.notices, "registered mailpit.test with caddy_shack")
 	return nil
 }
 

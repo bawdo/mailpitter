@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -13,7 +14,17 @@ import (
 	"github.com/bawdo/mailpitter/internal/state"
 )
 
+// noticeBuf is the buffer newTestApp wires up as the App's notices
+// writer. Tests assert against it to confirm user-facing output.
+type noticeBuf = *bytes.Buffer
+
 func newTestApp(t *testing.T) (*App, *docker.Fake, *fakeCaddy) {
+	t.Helper()
+	a, fd, fc, _ := newTestAppWithNotices(t)
+	return a, fd, fc
+}
+
+func newTestAppWithNotices(t *testing.T) (*App, *docker.Fake, *fakeCaddy, noticeBuf) {
 	t.Helper()
 	dir := t.TempDir()
 	p := Paths{
@@ -23,8 +34,9 @@ func newTestApp(t *testing.T) (*App, *docker.Fake, *fakeCaddy) {
 	}
 	fd := docker.NewFake()
 	fc := &fakeCaddy{}
-	a := NewWithOptions(Options{Docker: fd, Caddy: fc, Mailpit: &fakeMailpit{}, Paths: &p})
-	return a, fd, fc
+	notices := &bytes.Buffer{}
+	a := NewWithOptions(Options{Docker: fd, Caddy: fc, Mailpit: &fakeMailpit{}, Paths: &p, Notices: notices})
+	return a, fd, fc, notices
 }
 
 type fakeCaddy struct {

@@ -18,6 +18,7 @@ import (
 // App owns the runtime dependencies the commands share.
 type App struct {
 	out     io.Writer
+	notices io.Writer
 	docker  docker.Client
 	caddy   CaddyShack
 	mailpit MailpitAPI
@@ -43,6 +44,7 @@ type MailpitAPI interface {
 // fall back to production defaults.
 type Options struct {
 	Out     io.Writer
+	Notices io.Writer
 	Docker  docker.Client
 	Caddy   CaddyShack
 	Mailpit MailpitAPI
@@ -57,6 +59,9 @@ func New() *App { return NewWithOptions(Options{}) }
 func NewWithOptions(opts Options) *App {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
+	}
+	if opts.Notices == nil {
+		opts.Notices = os.Stderr
 	}
 	if opts.Docker == nil {
 		opts.Docker = docker.NewCLI()
@@ -73,6 +78,7 @@ func NewWithOptions(opts Options) *App {
 	}
 	return &App{
 		out:     opts.Out,
+		notices: opts.Notices,
 		docker:  opts.Docker,
 		caddy:   opts.Caddy,
 		mailpit: opts.Mailpit,
