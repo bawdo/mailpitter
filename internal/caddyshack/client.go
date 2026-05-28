@@ -12,13 +12,16 @@ import (
 )
 
 // Public sentinels callers match with errors.Is. Map to documented
-// caddy_shack exit codes.
+// caddy_shack exit codes (see caddy_shack's README).
 var (
-	ErrNotInstalled      = errors.New("caddy_shack not installed")
-	ErrDockerUnreachable = errors.New("caddy_shack: docker daemon unreachable")
-	ErrCaddyNotRunning   = errors.New("caddy_shack: caddy container not running")
-	ErrDomainConflict    = errors.New("caddy_shack: domain conflict")
-	ErrShellOutFailed    = errors.New("caddy_shack: shell-out failed")
+	ErrNotInstalled        = errors.New("caddy_shack not installed")
+	ErrUnhealthy           = errors.New("caddy_shack reports unhealthy")
+	ErrDockerUnreachable   = errors.New("caddy_shack: docker daemon unreachable")
+	ErrCaddyNotRunning     = errors.New("caddy_shack: caddy container not running")
+	ErrDomainConflict      = errors.New("caddy_shack: domain conflict")
+	ErrStateCorrupt        = errors.New("caddy_shack: state file corrupt")
+	ErrStateLockContention = errors.New("caddy_shack: state lock held")
+	ErrShellOutFailed      = errors.New("caddy_shack: shell-out failed")
 )
 
 // runFunc is the injectable executor. Production wires it to exec.CommandContext;
@@ -72,36 +75,67 @@ func (c *Client) Deregister(ctx context.Context, name string) error {
 	return c.translate(exit, stderr, err)
 }
 
-// Status holds the parsed output of `caddy_shack status --json`.
+// Status holds the parsed output of `caddy_shack status --json`. Field
+// tags mirror caddy_shack's internal/app.StatusReport; keep them in sync
+// with upstream. The realStatusJSON test constant pins this shape
+// against real terminal output.
 type Status struct {
-	Container string        `json:"container"`
-	AdminAPI  StatusAdminAPI `json:"admin_api"`
-	Backends  []StatusBackend `json:"backends"`
-}
-
-// StatusAdminAPI reports whether the caddy admin API is reachable.
-type StatusAdminAPI struct {
-	Reachable bool `json:"reachable"`
-}
-
-// StatusBackend is one registered reverse-proxy backend.
-type StatusBackend struct {
-	Name     string `json:"name"`
-	Domain   string `json:"domain"`
-	Upstream string `json:"upstream"`
+	ContainerState string `json:"container_state"`
+	AdminReachable bool   `json:"admin_reachable"`
+	BackendCount   int    `json:"backend_count"`
+	Healthy        bool   `json:"healthy"`
 }
 
 // Status calls `caddy_shack status --json` and returns the parsed result.
+//
+// caddy_shack legitimately exits 1 (ErrUnhealthy) when caddy is stopped
+// or unreachable, while still emitting the full JSON report. When that
+// happens, Status returns the parsed Status struct AND an ErrUnhealthy
+// error so callers can inspect what's wrong rather than getting an
+// opaque shell-out failure.
 func (c *Client) Status(ctx context.Context) (Status, error) {
 	stdout, stderr, exit, err := c.run(ctx, "caddy_shack", "status", "--json")
-	if exit != 0 || err != nil {
-		return Status{}, c.translate(exit, stderr, err)
-	}
+
 	var st Status
-	if err := json.Unmarshal([]byte(stdout), &st); err != nil {
-		return Status{}, fmt.Errorf("caddy_shack status: parse JSON: %w", err)
+	parseErr := json.Unmarshal([]byte(stdout), &st)
+
+	if exit == 0 && err == nil {
+		if parseErr != nil {
+			return Status{}, fmt.Errorf("caddy_shack status: parse JSON: %w", parseErr)
+		}
+		return st, nil
 	}
-	return st, nil
+
+	// Non-zero exit. If the JSON parsed cleanly, return it alongside the
+	// translated error so callers see structured state.
+	if parseErr == nil {
+		return st, c.translate(exit, stderr, err)
+	}
+	return Status{}, c.translate(exit, stderr, err)
+}
+
+// Backend is one row of `caddy_shack list --json`. Field tags mirror
+// caddy_shack's internal/app.Listing.
+type Backend struct {
+	Name         string `json:"name"`
+	Domain       string `json:"domain"`
+	Upstream     string `json:"upstream"`
+	RegisteredAt string `json:"registered_at"`
+}
+
+// List calls `caddy_shack list --json` and returns the registered backends.
+// caddy_shack's list command does not depend on caddy being running, so
+// unhealthy-but-installed caddy_shack still returns the full list.
+func (c *Client) List(ctx context.Context) ([]Backend, error) {
+	stdout, stderr, exit, err := c.run(ctx, "caddy_shack", "list", "--json")
+	if exit != 0 || err != nil {
+		return nil, c.translate(exit, stderr, err)
+	}
+	var backends []Backend
+	if err := json.Unmarshal([]byte(stdout), &backends); err != nil {
+		return nil, fmt.Errorf("caddy_shack list: parse JSON: %w", err)
+	}
+	return backends, nil
 }
 
 // translate maps caddy_shack's documented exit codes to package sentinels.
@@ -109,6 +143,8 @@ func (c *Client) translate(exit int, stderr string, runErr error) error {
 	switch exit {
 	case 0:
 		return nil
+	case 1:
+		return fmt.Errorf("%w: %s", ErrUnhealthy, stderr)
 	case 3:
 		return fmt.Errorf("%w: %s", ErrDomainConflict, stderr)
 	case 4:
@@ -117,6 +153,10 @@ func (c *Client) translate(exit int, stderr string, runErr error) error {
 		return fmt.Errorf("%w: %s", ErrCaddyNotRunning, stderr)
 	case 6:
 		return fmt.Errorf("%w: %s", ErrNotInstalled, stderr)
+	case 7:
+		return fmt.Errorf("%w: %s", ErrStateCorrupt, stderr)
+	case 8:
+		return fmt.Errorf("%w: %s", ErrStateLockContention, stderr)
 	default:
 		return fmt.Errorf("%w: exit %d: %s: %v", ErrShellOutFailed, exit, stderr, runErr)
 	}

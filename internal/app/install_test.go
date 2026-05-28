@@ -33,6 +33,8 @@ type fakeCaddy struct {
 	registerErr error
 	status      caddyshack.Status
 	statusErr   error
+	backends    []caddyshack.Backend
+	listErr     error
 }
 
 func (f *fakeCaddy) Register(_ context.Context, name, domain string, port int) error {
@@ -47,6 +49,10 @@ func (f *fakeCaddy) Deregister(_ context.Context, name string) error {
 
 func (f *fakeCaddy) Status(_ context.Context) (caddyshack.Status, error) {
 	return f.status, f.statusErr
+}
+
+func (f *fakeCaddy) List(_ context.Context) ([]caddyshack.Backend, error) {
+	return f.backends, f.listErr
 }
 
 type fakeMailpit struct{}

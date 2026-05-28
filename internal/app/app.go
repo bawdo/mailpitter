@@ -30,6 +30,7 @@ type CaddyShack interface {
 	Register(ctx context.Context, name, domain string, port int) error
 	Deregister(ctx context.Context, name string) error
 	Status(ctx context.Context) (caddyshack.Status, error)
+	List(ctx context.Context) ([]caddyshack.Backend, error)
 }
 
 // MailpitAPI is the subset of internal/mailpitapi the app uses.

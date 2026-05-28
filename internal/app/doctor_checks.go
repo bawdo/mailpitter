@@ -134,24 +134,35 @@ func checkCaddyShackInstalled(a *App) CheckResult {
 
 // checkCaddyShackRunning confirms the caddy_shack container is up and the
 // admin API is reachable. Skips when caddy_shack itself is not installed.
+// When caddy_shack returns ErrUnhealthy it still emits structured state,
+// so we use the parsed Status fields to report the specific reason.
 func checkCaddyShackRunning(a *App) CheckResult {
 	st, err := a.caddy.Status(context.Background())
 	if errors.Is(err, caddyshack.ErrNotInstalled) {
 		return CheckResult{Name: "caddy_shack-running", Status: SeveritySkip, Summary: "caddy_shack not installed"}
 	}
-	if err != nil {
+	if errors.Is(err, caddyshack.ErrUnhealthy) {
 		return CheckResult{
 			Name: "caddy_shack-running", Status: SeverityFail,
-			Summary: fmt.Sprintf("caddy_shack reports unhealthy: %v", err),
+			Summary: fmt.Sprintf("caddy_shack unhealthy (container=%s, admin_reachable=%v)", st.ContainerState, st.AdminReachable),
 			Fix:     &FixHint{Label: "caddy_shack start", Command: "caddy_shack start"},
 		}
 	}
-	if st.Container == "running" && st.AdminAPI.Reachable {
-		return CheckResult{Name: "caddy_shack-running", Status: SeverityPass, Summary: "running"}
+	if err != nil {
+		return CheckResult{
+			Name: "caddy_shack-running", Status: SeverityFail,
+			Summary: fmt.Sprintf("caddy_shack status failed: %v", err),
+		}
+	}
+	if st.Healthy {
+		return CheckResult{
+			Name: "caddy_shack-running", Status: SeverityPass,
+			Summary: fmt.Sprintf("running (%d backends)", st.BackendCount),
+		}
 	}
 	return CheckResult{
 		Name: "caddy_shack-running", Status: SeverityFail,
-		Summary: "caddy_shack container not running",
+		Summary: fmt.Sprintf("caddy_shack reports unhealthy (container=%s, admin_reachable=%v)", st.ContainerState, st.AdminReachable),
 		Fix:     &FixHint{Label: "caddy_shack start", Command: "caddy_shack start"},
 	}
 }
@@ -173,16 +184,18 @@ func checkMailpitImage(a *App) CheckResult {
 }
 
 // checkCaddyRoute confirms mailpit.test is registered as a backend in
-// caddy_shack. Skips when caddy_shack is not installed or unreachable.
+// caddy_shack. Uses `caddy_shack list --json`, which works even when
+// caddy itself is stopped (the route may still be persisted in
+// caddy_shack's state).
 func checkCaddyRoute(a *App) CheckResult {
-	st, err := a.caddy.Status(context.Background())
+	backends, err := a.caddy.List(context.Background())
 	if errors.Is(err, caddyshack.ErrNotInstalled) {
 		return CheckResult{Name: "caddy-route", Status: SeveritySkip, Summary: "caddy_shack not installed"}
 	}
 	if err != nil {
-		return CheckResult{Name: "caddy-route", Status: SeveritySkip, Summary: "caddy_shack unreachable"}
+		return CheckResult{Name: "caddy-route", Status: SeveritySkip, Summary: fmt.Sprintf("caddy_shack list failed: %v", err)}
 	}
-	for _, b := range st.Backends {
+	for _, b := range backends {
 		if b.Name == "mailpit" && b.Domain == Domain {
 			return CheckResult{Name: "caddy-route", Status: SeverityPass, Summary: "mailpit.test route registered"}
 		}
