@@ -18,6 +18,7 @@ import (
 // App owns the runtime dependencies the commands share.
 type App struct {
 	out     io.Writer
+	notices io.Writer
 	docker  docker.Client
 	caddy   CaddyShack
 	mailpit MailpitAPI
@@ -27,9 +28,11 @@ type App struct {
 // CaddyShack is the subset of internal/caddyshack the app uses. Stated
 // as an interface here so tests can swap it.
 type CaddyShack interface {
+	Installed() error
 	Register(ctx context.Context, name, domain string, port int) error
 	Deregister(ctx context.Context, name string) error
 	Status(ctx context.Context) (caddyshack.Status, error)
+	List(ctx context.Context) ([]caddyshack.Backend, error)
 }
 
 // MailpitAPI is the subset of internal/mailpitapi the app uses.
@@ -41,6 +44,7 @@ type MailpitAPI interface {
 // fall back to production defaults.
 type Options struct {
 	Out     io.Writer
+	Notices io.Writer
 	Docker  docker.Client
 	Caddy   CaddyShack
 	Mailpit MailpitAPI
@@ -55,6 +59,9 @@ func New() *App { return NewWithOptions(Options{}) }
 func NewWithOptions(opts Options) *App {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
+	}
+	if opts.Notices == nil {
+		opts.Notices = os.Stderr
 	}
 	if opts.Docker == nil {
 		opts.Docker = docker.NewCLI()
@@ -71,6 +78,7 @@ func NewWithOptions(opts Options) *App {
 	}
 	return &App{
 		out:     opts.Out,
+		notices: opts.Notices,
 		docker:  opts.Docker,
 		caddy:   opts.Caddy,
 		mailpit: opts.Mailpit,

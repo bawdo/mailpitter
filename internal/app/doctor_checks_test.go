@@ -67,7 +67,7 @@ func TestCheckMailpitAPISkippedWhenContainerDown(t *testing.T) {
 
 func TestCheckCaddyShackInstalledPass(t *testing.T) {
 	a, _, _ := newTestApp(t)
-	// fakeCaddy.Status returns Status{}, nil by default — no ErrNotInstalled.
+	// fakeCaddy.Installed returns nil by default.
 	r := checkCaddyShackInstalled(a)
 	if r.Status != SeverityPass {
 		t.Errorf("status = %v, want PASS", r.Status)
@@ -76,7 +76,7 @@ func TestCheckCaddyShackInstalledPass(t *testing.T) {
 
 func TestCheckCaddyShackInstalledFail(t *testing.T) {
 	a, _, fc := newTestApp(t)
-	fc.statusErr = caddyshack.ErrNotInstalled
+	fc.installedErr = caddyshack.ErrNotInstalled
 	r := checkCaddyShackInstalled(a)
 	if r.Status != SeverityFail {
 		t.Errorf("status = %v, want FAIL", r.Status)
@@ -88,19 +88,30 @@ func TestCheckCaddyShackInstalledFail(t *testing.T) {
 
 func TestCheckCaddyShackRunningPass(t *testing.T) {
 	a, _, fc := newTestApp(t)
-	fc.status = caddyshack.Status{Container: "running", AdminAPI: caddyshack.StatusAdminAPI{Reachable: true}}
+	fc.status = caddyshack.Status{
+		ContainerState: "running", AdminReachable: true, BackendCount: 3, Healthy: true,
+	}
 	r := checkCaddyShackRunning(a)
 	if r.Status != SeverityPass {
 		t.Errorf("status = %v, want PASS", r.Status)
 	}
 }
 
-func TestCheckCaddyShackRunningFail(t *testing.T) {
+// TestCheckCaddyShackRunningUnhealthyFromStructuredStatus mirrors what
+// happens against real caddy_shack when caddy is stopped: caddy_shack
+// exits 1 (ErrUnhealthy) with a valid status report. The check should
+// report FAIL and surface the structured reason, not get tripped by
+// the non-zero exit alone.
+func TestCheckCaddyShackRunningUnhealthyFromStructuredStatus(t *testing.T) {
 	a, _, fc := newTestApp(t)
-	fc.status = caddyshack.Status{Container: "stopped"}
+	fc.status = caddyshack.Status{ContainerState: "stopped", AdminReachable: false, Healthy: false}
+	fc.statusErr = caddyshack.ErrUnhealthy
 	r := checkCaddyShackRunning(a)
 	if r.Status != SeverityFail {
 		t.Errorf("status = %v, want FAIL", r.Status)
+	}
+	if r.Summary == "" || r.Fix == nil {
+		t.Errorf("expected populated summary + fix, got %+v", r)
 	}
 }
 
@@ -132,12 +143,9 @@ func TestCheckMailpitImageMissing(t *testing.T) {
 
 func TestCheckCaddyRoutePresent(t *testing.T) {
 	a, _, fc := newTestApp(t)
-	fc.status = caddyshack.Status{
-		Container: "running",
-		AdminAPI:  caddyshack.StatusAdminAPI{Reachable: true},
-		Backends: []caddyshack.StatusBackend{
-			{Name: "mailpit", Domain: Domain},
-		},
+	fc.backends = []caddyshack.Backend{
+		{Name: "bookstack", Domain: "bookstack.test", Upstream: "host.docker.internal:8091"},
+		{Name: "mailpit", Domain: Domain, Upstream: "host.docker.internal:8025"},
 	}
 	r := checkCaddyRoute(a)
 	if r.Status != SeverityPass {
@@ -147,10 +155,21 @@ func TestCheckCaddyRoutePresent(t *testing.T) {
 
 func TestCheckCaddyRouteMissing(t *testing.T) {
 	a, _, fc := newTestApp(t)
-	fc.status = caddyshack.Status{Container: "running", AdminAPI: caddyshack.StatusAdminAPI{Reachable: true}}
+	fc.backends = []caddyshack.Backend{
+		{Name: "bookstack", Domain: "bookstack.test"},
+	}
 	r := checkCaddyRoute(a)
 	if r.Status != SeverityFail {
 		t.Errorf("status = %v, want FAIL", r.Status)
+	}
+}
+
+func TestCheckCaddyRouteSkipWhenNotInstalled(t *testing.T) {
+	a, _, fc := newTestApp(t)
+	fc.listErr = caddyshack.ErrNotInstalled
+	r := checkCaddyRoute(a)
+	if r.Status != SeveritySkip {
+		t.Errorf("status = %v, want SKIP", r.Status)
 	}
 }
 

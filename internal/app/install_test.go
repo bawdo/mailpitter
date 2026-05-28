@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -13,7 +14,17 @@ import (
 	"github.com/bawdo/mailpitter/internal/state"
 )
 
+// noticeBuf is the buffer newTestApp wires up as the App's notices
+// writer. Tests assert against it to confirm user-facing output.
+type noticeBuf = *bytes.Buffer
+
 func newTestApp(t *testing.T) (*App, *docker.Fake, *fakeCaddy) {
+	t.Helper()
+	a, fd, fc, _ := newTestAppWithNotices(t)
+	return a, fd, fc
+}
+
+func newTestAppWithNotices(t *testing.T) (*App, *docker.Fake, *fakeCaddy, noticeBuf) {
 	t.Helper()
 	dir := t.TempDir()
 	p := Paths{
@@ -23,17 +34,23 @@ func newTestApp(t *testing.T) (*App, *docker.Fake, *fakeCaddy) {
 	}
 	fd := docker.NewFake()
 	fc := &fakeCaddy{}
-	a := NewWithOptions(Options{Docker: fd, Caddy: fc, Mailpit: &fakeMailpit{}, Paths: &p})
-	return a, fd, fc
+	notices := &bytes.Buffer{}
+	a := NewWithOptions(Options{Docker: fd, Caddy: fc, Mailpit: &fakeMailpit{}, Paths: &p, Notices: notices})
+	return a, fd, fc, notices
 }
 
 type fakeCaddy struct {
-	registers   []string
-	deregisters []string
-	registerErr error
-	status      caddyshack.Status
-	statusErr   error
+	registers     []string
+	deregisters   []string
+	registerErr   error
+	status        caddyshack.Status
+	statusErr     error
+	backends      []caddyshack.Backend
+	listErr       error
+	installedErr  error
 }
+
+func (f *fakeCaddy) Installed() error { return f.installedErr }
 
 func (f *fakeCaddy) Register(_ context.Context, name, domain string, port int) error {
 	f.registers = append(f.registers, name+"|"+domain)
@@ -47,6 +64,10 @@ func (f *fakeCaddy) Deregister(_ context.Context, name string) error {
 
 func (f *fakeCaddy) Status(_ context.Context) (caddyshack.Status, error) {
 	return f.status, f.statusErr
+}
+
+func (f *fakeCaddy) List(_ context.Context) ([]caddyshack.Backend, error) {
+	return f.backends, f.listErr
 }
 
 type fakeMailpit struct{}
