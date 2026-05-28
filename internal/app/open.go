@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"runtime"
 )
@@ -15,6 +16,7 @@ func (a *App) Open(_ context.Context) error {
 	case "darwin":
 		return exec.Command("open", url).Run()
 	default:
-		return Prerequisitef("auto-open not supported on %s; visit %s manually", runtime.GOOS, url)
+		_, _ = fmt.Fprintf(a.out, "auto-open not supported on %s; visit %s manually\n", runtime.GOOS, url)
+		return nil
 	}
 }
