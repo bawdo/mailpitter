@@ -17,7 +17,18 @@ func TestDoctorReportContainsAllChecks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Doctor: %v", err)
 	}
-	want := []string{"docker-daemon", "mailpit-container", "mailpit-api", "port-1025", "port-8025"}
+	want := []string{
+		"docker-daemon",
+		"caddy_shack-installed",
+		"caddy_shack-running",
+		"mailpit-image",
+		"mailpit-container",
+		"mailpit-api",
+		"port-1025",
+		"port-8025",
+		"caddy-route",
+		"install-mode",
+	}
 	if len(rep.Checks) < len(want) {
 		t.Fatalf("checks = %d, want >= %d", len(rep.Checks), len(want))
 	}

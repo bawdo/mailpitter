@@ -20,10 +20,15 @@ type DoctorSummary struct {
 func allChecks() []func(*App) CheckResult {
 	return []func(*App) CheckResult{
 		checkDockerDaemon,
+		checkCaddyShackInstalled,
+		checkCaddyShackRunning,
+		checkMailpitImage,
 		checkMailpitContainer,
 		checkMailpitAPI,
 		checkPortSMTP,
 		checkPortUI,
+		checkCaddyRoute,
+		checkInstallModeMatch,
 	}
 }
 
