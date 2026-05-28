@@ -42,6 +42,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newDeregisterCmd())
 	root.AddCommand(newListCmd())
 	root.AddCommand(newResetCmd())
+	root.AddCommand(newOpenCmd())
 	applyHelpBareword(root)
 	return root
 }
