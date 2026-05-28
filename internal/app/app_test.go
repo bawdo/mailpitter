@@ -4,26 +4,50 @@ import (
 	"bytes"
 	"os"
 	"testing"
+
+	"github.com/bawdo/mailpitter/internal/docker"
 )
 
-func TestNewUsesStdout(t *testing.T) {
+func TestNewUsesProductionDefaults(t *testing.T) {
 	a := New()
 	if a.Out() != os.Stdout {
-		t.Errorf("New().Out(): want os.Stdout, got %v", a.Out())
+		t.Errorf("Out: want os.Stdout, got %v", a.Out())
+	}
+	if a.docker == nil {
+		t.Errorf("docker client should be set")
+	}
+	if a.caddy == nil {
+		t.Errorf("caddy client should be set")
+	}
+	if a.mailpit == nil {
+		t.Errorf("mailpit client should be set")
+	}
+	if a.paths.StatePath == "" {
+		t.Errorf("paths should be populated")
 	}
 }
 
-func TestNewWithOptionsHonoursExplicitOut(t *testing.T) {
+func TestNewWithOptionsHonoursOverrides(t *testing.T) {
 	var buf bytes.Buffer
-	a := NewWithOptions(Options{Out: &buf})
+	fakeDocker := docker.NewFake()
+	a := NewWithOptions(Options{
+		Out:    &buf,
+		Docker: fakeDocker,
+	})
 	if a.Out() != &buf {
-		t.Errorf("Out not honoured: got %p, want %p", a.Out(), &buf)
+		t.Errorf("Out not honoured")
+	}
+	if a.docker != fakeDocker {
+		t.Errorf("Docker not honoured")
 	}
 }
 
-func TestNewWithOptionsZeroValueFallsBackToStdout(t *testing.T) {
+func TestNewWithOptionsZeroValuesFallBack(t *testing.T) {
 	a := NewWithOptions(Options{})
 	if a.Out() != os.Stdout {
-		t.Errorf("zero-valued Out should fall back to stdout, got %v", a.Out())
+		t.Errorf("zero-valued Out should default to stdout")
+	}
+	if a.docker == nil {
+		t.Errorf("zero-valued Docker should default")
 	}
 }

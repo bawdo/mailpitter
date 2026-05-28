@@ -1,56 +1,81 @@
-// Package app is the orchestrator behind every CLI command.
-//
-// Convention: cmd/ files are thin (Cobra wiring, flag parsing,
-// delegation). All business logic - validation, I/O, state mutation -
-// lives here so it can be unit-tested without spinning up Cobra. A cmd
-// function should look like:
-//
-//	RunE: func(cmd *cobra.Command, args []string) error {
-//	    a := app.New()
-//	    return a.DoTheThing(cmd.Context(), parseInput(args))
-//	}
-//
-// Errors returned from App methods that wrap an exitcode sentinel
-// (see internal/exitcode) will translate to the right exit code on
-// the way out.
+// Package app is the orchestrator behind every CLI command. Convention:
+// cmd/ files are thin (Cobra wiring, flag parsing, delegation). All
+// business logic lives here so it can be unit-tested without spinning up
+// Cobra. Side-effects live behind interfaces in internal/docker,
+// internal/mailpitapi, internal/caddyshack.
 package app
 
 import (
+	"context"
 	"io"
 	"os"
+
+	"github.com/bawdo/mailpitter/internal/caddyshack"
+	"github.com/bawdo/mailpitter/internal/docker"
+	"github.com/bawdo/mailpitter/internal/mailpitapi"
 )
 
-// App owns the runtime dependencies the commands share. No domain
-// methods ship by default - add fields and methods as you wire up
-// your first real command (a logger, a config, an HTTP client, etc.).
+// App owns the runtime dependencies the commands share.
 type App struct {
-	out io.Writer
+	out     io.Writer
+	docker  docker.Client
+	caddy   CaddyShack
+	mailpit MailpitAPI
+	paths   Paths
+}
+
+// CaddyShack is the subset of internal/caddyshack the app uses. Stated
+// as an interface here so tests can swap it.
+type CaddyShack interface {
+	Register(ctx context.Context, name, domain string, port int) error
+	Deregister(ctx context.Context, name string) error
+}
+
+// MailpitAPI is the subset of internal/mailpitapi the app uses.
+type MailpitAPI interface {
+	Info() (mailpitapi.Info, error)
 }
 
 // Options is the test-friendly constructor input. Zero-valued fields
-// fall back to production defaults; tests fill in only the bits they
-// care about.
+// fall back to production defaults.
 type Options struct {
-	// Out is where user-facing command output goes. Defaults to
-	// os.Stdout when nil.
-	Out io.Writer
+	Out     io.Writer
+	Docker  docker.Client
+	Caddy   CaddyShack
+	Mailpit MailpitAPI
+	Paths   *Paths
 }
 
-// New builds an App with default dependencies. Production callers use
-// this; tests use NewWithOptions.
-func New() *App {
-	return NewWithOptions(Options{})
-}
+// New builds an App with production defaults.
+func New() *App { return NewWithOptions(Options{}) }
 
-// NewWithOptions builds an App from explicit options, substituting
+// NewWithOptions builds an App with explicit options, substituting
 // production defaults for any zero-valued field.
 func NewWithOptions(opts Options) *App {
 	if opts.Out == nil {
 		opts.Out = os.Stdout
 	}
-	return &App{out: opts.Out}
+	if opts.Docker == nil {
+		opts.Docker = docker.NewCLI()
+	}
+	if opts.Caddy == nil {
+		opts.Caddy = caddyshack.New()
+	}
+	if opts.Mailpit == nil {
+		opts.Mailpit = mailpitapi.New(UIBaseURL, nil)
+	}
+	paths := DefaultPaths()
+	if opts.Paths != nil {
+		paths = *opts.Paths
+	}
+	return &App{
+		out:     opts.Out,
+		docker:  opts.Docker,
+		caddy:   opts.Caddy,
+		mailpit: opts.Mailpit,
+		paths:   paths,
+	}
 }
 
-// Out returns the writer App was constructed with. cmd/ render helpers
-// use this so test output goes to the same buffer the test injected.
+// Out returns the writer App was constructed with.
 func (a *App) Out() io.Writer { return a.out }
