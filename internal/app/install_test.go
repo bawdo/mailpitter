@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bawdo/mailpitter/internal/caddyshack"
 	"github.com/bawdo/mailpitter/internal/docker"
 	"github.com/bawdo/mailpitter/internal/exitcode"
 	"github.com/bawdo/mailpitter/internal/mailpitapi"
@@ -30,6 +31,8 @@ type fakeCaddy struct {
 	registers   []string
 	deregisters []string
 	registerErr error
+	status      caddyshack.Status
+	statusErr   error
 }
 
 func (f *fakeCaddy) Register(_ context.Context, name, domain string, port int) error {
@@ -40,6 +43,10 @@ func (f *fakeCaddy) Register(_ context.Context, name, domain string, port int) e
 func (f *fakeCaddy) Deregister(_ context.Context, name string) error {
 	f.deregisters = append(f.deregisters, name)
 	return nil
+}
+
+func (f *fakeCaddy) Status(_ context.Context) (caddyshack.Status, error) {
+	return f.status, f.statusErr
 }
 
 type fakeMailpit struct{}
