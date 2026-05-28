@@ -29,10 +29,6 @@ func TestMailpitterRoundTrip(t *testing.T) {
 		t.Skip("mailpitter not on PATH (run `make install` first)")
 	}
 
-	t.Cleanup(func() {
-		_ = exec.Command("mailpitter", "reset", "--confirm=yes").Run()
-	})
-
 	// Install
 	if out, err := exec.Command("mailpitter", "install").CombinedOutput(); err != nil {
 		t.Fatalf("install: %v: %s", err, out)
@@ -74,6 +70,30 @@ func TestMailpitterRoundTrip(t *testing.T) {
 	// Deregister
 	if err := exec.Command("mailpitter", "deregister", "smoke").Run(); err != nil {
 		t.Fatalf("deregister: %v", err)
+	}
+
+	// Stop: container goes to stopped state.
+	if out, err := exec.Command("mailpitter", "stop").CombinedOutput(); err != nil {
+		t.Fatalf("stop: %v: %s", err, out)
+	}
+	out, err = exec.Command("mailpitter", "status", "--json").CombinedOutput()
+	if err != nil {
+		t.Fatalf("status after stop: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), `"container": "stopped"`) {
+		t.Errorf("status JSON after stop should report stopped: %s", out)
+	}
+
+	// Reset: container and volume removed.
+	if out, err := exec.Command("mailpitter", "reset", "--confirm=yes").CombinedOutput(); err != nil {
+		t.Fatalf("reset: %v: %s", err, out)
+	}
+	out, err = exec.Command("mailpitter", "status", "--json").CombinedOutput()
+	if err != nil {
+		t.Fatalf("status after reset: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), `"container": "absent"`) {
+		t.Errorf("status JSON after reset should report absent: %s", out)
 	}
 }
 
