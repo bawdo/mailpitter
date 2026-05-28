@@ -5,6 +5,7 @@ package caddyshack
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -69,6 +70,38 @@ func (c *Client) Deregister(ctx context.Context, name string) error {
 		return nil
 	}
 	return c.translate(exit, stderr, err)
+}
+
+// Status holds the parsed output of `caddy_shack status --json`.
+type Status struct {
+	Container string        `json:"container"`
+	AdminAPI  StatusAdminAPI `json:"admin_api"`
+	Backends  []StatusBackend `json:"backends"`
+}
+
+// StatusAdminAPI reports whether the caddy admin API is reachable.
+type StatusAdminAPI struct {
+	Reachable bool `json:"reachable"`
+}
+
+// StatusBackend is one registered reverse-proxy backend.
+type StatusBackend struct {
+	Name     string `json:"name"`
+	Domain   string `json:"domain"`
+	Upstream string `json:"upstream"`
+}
+
+// Status calls `caddy_shack status --json` and returns the parsed result.
+func (c *Client) Status(ctx context.Context) (Status, error) {
+	stdout, stderr, exit, err := c.run(ctx, "caddy_shack", "status", "--json")
+	if exit != 0 || err != nil {
+		return Status{}, c.translate(exit, stderr, err)
+	}
+	var st Status
+	if err := json.Unmarshal([]byte(stdout), &st); err != nil {
+		return Status{}, fmt.Errorf("caddy_shack status: parse JSON: %w", err)
+	}
+	return st, nil
 }
 
 // translate maps caddy_shack's documented exit codes to package sentinels.

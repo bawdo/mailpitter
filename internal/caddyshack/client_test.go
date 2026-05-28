@@ -65,3 +65,43 @@ func TestDeregisterSuccess(t *testing.T) {
 		t.Errorf("args = %v", r.gotArgs)
 	}
 }
+
+func TestStatusSuccess(t *testing.T) {
+	payload := `{"container":"running","admin_api":{"reachable":true},"backends":[{"name":"mailpit","domain":"mailpit.test","upstream":"localhost:8025"}]}`
+	r := &fakeRunner{exitCode: 0, stdout: payload}
+	c := newClientWithRunner(r.run)
+	st, err := c.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Container != "running" {
+		t.Errorf("Container = %q, want %q", st.Container, "running")
+	}
+	if !st.AdminAPI.Reachable {
+		t.Errorf("AdminAPI.Reachable = false, want true")
+	}
+	if len(st.Backends) != 1 || st.Backends[0].Name != "mailpit" {
+		t.Errorf("Backends = %+v", st.Backends)
+	}
+	if strings.Join(r.gotArgs, " ") != "status --json" {
+		t.Errorf("args = %v", r.gotArgs)
+	}
+}
+
+func TestStatusNotInstalled(t *testing.T) {
+	r := &fakeRunner{exitCode: 6, returnErr: errors.New("exit")}
+	c := newClientWithRunner(r.run)
+	_, err := c.Status(context.Background())
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Errorf("got %v, want errors.Is(_, ErrNotInstalled)", err)
+	}
+}
+
+func TestStatusInvalidJSON(t *testing.T) {
+	r := &fakeRunner{exitCode: 0, stdout: "not json at all"}
+	c := newClientWithRunner(r.run)
+	_, err := c.Status(context.Background())
+	if err == nil {
+		t.Error("expected error for invalid JSON, got nil")
+	}
+}
