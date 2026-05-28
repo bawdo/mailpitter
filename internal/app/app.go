@@ -27,6 +27,7 @@ type App struct {
 // CaddyShack is the subset of internal/caddyshack the app uses. Stated
 // as an interface here so tests can swap it.
 type CaddyShack interface {
+	Installed() error
 	Register(ctx context.Context, name, domain string, port int) error
 	Deregister(ctx context.Context, name string) error
 	Status(ctx context.Context) (caddyshack.Status, error)

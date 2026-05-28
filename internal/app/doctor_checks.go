@@ -118,11 +118,13 @@ func checkPortFree(name string, port int) CheckResult {
 func checkPortSMTP(_ *App) CheckResult { return checkPortFree("port-1025", SMTPPort) }
 func checkPortUI(_ *App) CheckResult   { return checkPortFree("port-8025", UIPort) }
 
-// checkCaddyShackInstalled reports whether caddy_shack is on PATH by probing
-// Status. A ErrNotInstalled sentinel means the binary is absent.
+// checkCaddyShackInstalled reports whether the caddy_shack binary is on
+// $PATH. Uses exec.LookPath via the caddyshack client - the previous
+// Status-probing approach falsely PASSed when caddy_shack was genuinely
+// missing, because ENOENT from exec.CommandContext doesn't surface as
+// caddyshack.ErrNotInstalled.
 func checkCaddyShackInstalled(a *App) CheckResult {
-	_, err := a.caddy.Status(context.Background())
-	if errors.Is(err, caddyshack.ErrNotInstalled) {
+	if err := a.caddy.Installed(); err != nil {
 		return CheckResult{
 			Name: "caddy_shack-installed", Status: SeverityFail,
 			Summary: "caddy_shack not installed",

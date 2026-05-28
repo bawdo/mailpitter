@@ -222,3 +222,29 @@ func TestListNotInstalled(t *testing.T) {
 		t.Errorf("got %v, want errors.Is(_, ErrNotInstalled)", err)
 	}
 }
+
+func TestInstalledReturnsNilWhenBinaryOnPath(t *testing.T) {
+	prev := lookPath
+	lookPath = func(name string) (string, error) {
+		if name != "caddy_shack" {
+			t.Errorf("LookPath called with %q", name)
+		}
+		return "/usr/local/bin/caddy_shack", nil
+	}
+	defer func() { lookPath = prev }()
+	c := New()
+	if err := c.Installed(); err != nil {
+		t.Errorf("Installed: %v", err)
+	}
+}
+
+func TestInstalledReturnsErrNotInstalledWhenBinaryMissing(t *testing.T) {
+	prev := lookPath
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	defer func() { lookPath = prev }()
+	c := New()
+	err := c.Installed()
+	if !errors.Is(err, ErrNotInstalled) {
+		t.Errorf("got %v, want errors.Is(_, ErrNotInstalled)", err)
+	}
+}

@@ -67,7 +67,7 @@ func TestCheckMailpitAPISkippedWhenContainerDown(t *testing.T) {
 
 func TestCheckCaddyShackInstalledPass(t *testing.T) {
 	a, _, _ := newTestApp(t)
-	// fakeCaddy.Status returns Status{}, nil by default — no ErrNotInstalled.
+	// fakeCaddy.Installed returns nil by default.
 	r := checkCaddyShackInstalled(a)
 	if r.Status != SeverityPass {
 		t.Errorf("status = %v, want PASS", r.Status)
@@ -76,7 +76,7 @@ func TestCheckCaddyShackInstalledPass(t *testing.T) {
 
 func TestCheckCaddyShackInstalledFail(t *testing.T) {
 	a, _, fc := newTestApp(t)
-	fc.statusErr = caddyshack.ErrNotInstalled
+	fc.installedErr = caddyshack.ErrNotInstalled
 	r := checkCaddyShackInstalled(a)
 	if r.Status != SeverityFail {
 		t.Errorf("status = %v, want FAIL", r.Status)

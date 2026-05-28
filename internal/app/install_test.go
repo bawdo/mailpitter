@@ -28,14 +28,17 @@ func newTestApp(t *testing.T) (*App, *docker.Fake, *fakeCaddy) {
 }
 
 type fakeCaddy struct {
-	registers   []string
-	deregisters []string
-	registerErr error
-	status      caddyshack.Status
-	statusErr   error
-	backends    []caddyshack.Backend
-	listErr     error
+	registers     []string
+	deregisters   []string
+	registerErr   error
+	status        caddyshack.Status
+	statusErr     error
+	backends      []caddyshack.Backend
+	listErr       error
+	installedErr  error
 }
+
+func (f *fakeCaddy) Installed() error { return f.installedErr }
 
 func (f *fakeCaddy) Register(_ context.Context, name, domain string, port int) error {
 	f.registers = append(f.registers, name+"|"+domain)
