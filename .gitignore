@@ -23,6 +23,9 @@ docs/superpowers/*
 
 # Pre-CI check artefacts (regenerated each run)
 coverage/pre-ci-*.txt
+
+# Smoke test logs
+scripts/smoke-*.log
 coverage/.last-coverage
 
 # Bootstrapper scratch (defensive: bootstrapper currently writes
