@@ -67,6 +67,18 @@ func TestMailpitterRoundTrip(t *testing.T) {
 		t.Errorf("list missing smoke consumer: %s", out)
 	}
 
+	// Doctor passes against a healthy install. This is the regression
+	// gate for the caddyshack JSON-shape bug: doctor's caddy_shack-running
+	// and caddy-route checks both consume real caddy_shack output, so a
+	// drift in that wire format would land here as a FAIL.
+	out, err = exec.Command("mailpitter", "doctor", "--json").CombinedOutput()
+	if err != nil {
+		t.Fatalf("doctor: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), `"fail": 0`) {
+		t.Errorf("doctor reports non-zero FAILs against a healthy install:\n%s", out)
+	}
+
 	// Deregister
 	if err := exec.Command("mailpitter", "deregister", "smoke").Run(); err != nil {
 		t.Fatalf("deregister: %v", err)
