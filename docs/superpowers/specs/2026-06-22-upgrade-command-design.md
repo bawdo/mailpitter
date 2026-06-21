@@ -34,7 +34,9 @@ We pull the moving `axllent/mailpit:latest` Docker tag rather than
 resolving a concrete release tag from an upstream API. State records the
 image as `axllent/mailpit:latest`. The concrete version shown to the user
 comes from mailpit's own admin API (`GET /api/v1/info`) after the
-container is up.
+container is up. Version reporting is best-effort: a single `Info()` call,
+no retry. Right after a recreate the API may not yet be reachable, in
+which case we print a fallback message pointing at `mailpitter status`.
 
 The pinned `Image` constant (`axllent/mailpit:v1.21`) stays as the
 `install` default. `upgrade` deliberately opts into the moving tag.
@@ -120,10 +122,12 @@ Flow:
 11. Re-register: `caddy.Register("mailpit", Domain, UIPort)` →
     `CaddyShackf` on failure. Print the existing
     "registered mailpit.test with caddy_shack" notice.
-12. Best-effort version report: brief `Info()` poll, then print
-    `upgraded to vX.Y.Z` (fallback:
-    `upgrade complete; run mailpitter status` if the API is not yet
-    reachable).
+12. Best-effort version report: a single `Info()` call (no poll, matching
+    `status.go`). If reachable, print `upgraded to <version>`; otherwise
+    fall back to `upgrade complete; run mailpitter status to confirm
+    version`. The already-up-to-date path prints
+    `already up to date (<version>)`, or a version-less
+    `already up to date` if the API is unreachable.
 
 ### 5. `cmd/upgrade.go`
 
