@@ -155,3 +155,32 @@ func TestInstallDockerDown(t *testing.T) {
 		t.Errorf("expected ErrDockerUnreachable, got %v", err)
 	}
 }
+
+func TestContainerSpecPersistent(t *testing.T) {
+	spec := containerSpec(state.ModePersistent, "img:test")
+	if spec.Name != ContainerName {
+		t.Errorf("Name = %q", spec.Name)
+	}
+	if spec.Image != "img:test" {
+		t.Errorf("Image = %q", spec.Image)
+	}
+	if len(spec.Volumes) != 1 || spec.Volumes[0].VolumeName != DataVolume {
+		t.Errorf("persistent spec should mount the data volume, got %+v", spec.Volumes)
+	}
+	if len(spec.Env) != 1 {
+		t.Errorf("persistent spec should set MP_DATABASE env, got %v", spec.Env)
+	}
+	if len(spec.PortMappings) != 2 {
+		t.Errorf("spec should publish 2 ports, got %d", len(spec.PortMappings))
+	}
+}
+
+func TestContainerSpecEphemeral(t *testing.T) {
+	spec := containerSpec(state.ModeEphemeral, "img:test")
+	if len(spec.Volumes) != 0 {
+		t.Errorf("ephemeral spec should mount no volumes, got %d", len(spec.Volumes))
+	}
+	if spec.Env != nil {
+		t.Errorf("ephemeral spec should have nil env, got %v", spec.Env)
+	}
+}

@@ -59,28 +59,12 @@ func (a *App) Install(ctx context.Context, in InstallInput) error {
 		if err := a.docker.PullImage(Image); err != nil {
 			return err
 		}
-		spec := docker.ContainerSpec{
-			Name:  ContainerName,
-			Image: Image,
-			Env:   []string{"MP_DATABASE=/data/mailpit.db"},
-			PortMappings: []docker.PortMapping{
-				{HostAddr: HostBindAddr, HostPort: SMTPPort, ContainerPort: SMTPPort},
-				{HostAddr: HostBindAddr, HostPort: UIPort, ContainerPort: UIPort},
-			},
-		}
 		if !in.Ephemeral {
 			if err := a.docker.EnsureVolume(DataVolume); err != nil {
 				return err
 			}
-			spec.Volumes = []docker.VolumeMount{
-				{VolumeName: DataVolume, ContainerPath: "/data"},
-			}
-		} else {
-			// Ephemeral: drop the MP_DATABASE env so mailpit uses its
-			// in-memory store rather than trying to write to /data.
-			spec.Env = nil
 		}
-		if err := a.docker.CreateAndStart(spec); err != nil {
+		if err := a.docker.CreateAndStart(containerSpec(wantMode, Image)); err != nil {
 			_ = a.docker.Remove(ContainerName)
 			return err
 		}
@@ -107,6 +91,31 @@ func (a *App) Install(ctx context.Context, in InstallInput) error {
 	}
 	_, _ = fmt.Fprintln(a.notices, "registered mailpit.test with caddy_shack")
 	return nil
+}
+
+// containerSpec builds the docker ContainerSpec for the mailpit container
+// in the given mode against the given image. Volume creation is the
+// caller's responsibility (gated on persistent mode).
+func containerSpec(mode state.Mode, image string) docker.ContainerSpec {
+	spec := docker.ContainerSpec{
+		Name:  ContainerName,
+		Image: image,
+		Env:   []string{"MP_DATABASE=/data/mailpit.db"},
+		PortMappings: []docker.PortMapping{
+			{HostAddr: HostBindAddr, HostPort: SMTPPort, ContainerPort: SMTPPort},
+			{HostAddr: HostBindAddr, HostPort: UIPort, ContainerPort: UIPort},
+		},
+	}
+	if mode == state.ModePersistent {
+		spec.Volumes = []docker.VolumeMount{
+			{VolumeName: DataVolume, ContainerPath: "/data"},
+		}
+	} else {
+		// Ephemeral: drop MP_DATABASE so mailpit uses its in-memory store
+		// rather than writing to /data.
+		spec.Env = nil
+	}
+	return spec
 }
 
 func flagFor(m state.Mode) string {
