@@ -64,6 +64,10 @@ The CLI promises a stable exit-code contract.
 | 8    | `exitcode.ErrStateLockContention`     | state lock held by another mailpitter        |
 | 9    | `exitcode.ErrCaddyShackFailure`       | caddy_shack returned non-zero                |
 
+`upgrade` adds no new codes; it reuses the contract above, returning 4
+(docker unreachable), 6 (not installed yet), 7 or 8 (state corrupt or
+locked), or 9 (caddy_shack failure).
+
 ## Project layout
 
 ```
