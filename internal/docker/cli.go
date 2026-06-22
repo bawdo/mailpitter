@@ -59,6 +59,22 @@ func (CLI) ImagePresent(image string) (bool, error) {
 	return false, fmt.Errorf("docker image inspect: %w", err)
 }
 
+func (CLI) ImageID(ref string) (string, error) {
+	out, err := exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", ref).Output()
+	if err != nil {
+		return "", fmt.Errorf("docker image inspect %s: %w", ref, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (CLI) ContainerImageID(name string) (string, error) {
+	out, err := exec.Command("docker", "inspect", "--format", "{{.Image}}", name).Output()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect %s: %w", name, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (CLI) ContainerState(name string) (ContainerState, error) {
 	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Running}}", name)
 	var stdout, stderr bytes.Buffer

@@ -38,6 +38,8 @@ type Client interface {
 	RemoveVolume(name string) error
 	PullImage(image string) error
 	ImagePresent(image string) (bool, error)
+	ImageID(ref string) (string, error)
+	ContainerImageID(name string) (string, error)
 	ContainerState(name string) (ContainerState, error)
 	CreateAndStart(spec ContainerSpec) error
 	Start(name string) error

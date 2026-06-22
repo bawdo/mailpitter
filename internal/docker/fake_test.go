@@ -55,3 +55,21 @@ func TestFakeRemoveVolume(t *testing.T) {
 		t.Errorf("volume should be gone")
 	}
 }
+
+func TestFakeImageIDs(t *testing.T) {
+	f := NewFake()
+	f.ImageIDs["axllent/mailpit:latest"] = "sha256:aaa"
+	f.ContainerImageIDs["mailpitter"] = "sha256:bbb"
+
+	id, err := f.ImageID("axllent/mailpit:latest")
+	if err != nil || id != "sha256:aaa" {
+		t.Errorf("ImageID = %q, %v", id, err)
+	}
+	cid, err := f.ContainerImageID("mailpitter")
+	if err != nil || cid != "sha256:bbb" {
+		t.Errorf("ContainerImageID = %q, %v", cid, err)
+	}
+	if missing, _ := f.ImageID("nope"); missing != "" {
+		t.Errorf("unknown ref should return empty, got %q", missing)
+	}
+}

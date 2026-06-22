@@ -6,6 +6,9 @@ const (
 	ContainerName = "mailpitter"
 	Image         = "axllent/mailpit:v1.21"
 	DataVolume    = "mailpitter_data"
+	// LatestImage is the moving tag `upgrade` pulls. Distinct from the
+	// pinned Image used by install.
+	LatestImage = "axllent/mailpit:latest"
 )
 
 // Network constants.

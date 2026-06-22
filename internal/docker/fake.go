@@ -15,6 +15,13 @@ type Fake struct {
 	// Images is the set of pulled image references.
 	Images map[string]bool
 
+	// ImageIDs maps an image ref to the ID ImageID returns. Missing -> "".
+	ImageIDs map[string]string
+
+	// ContainerImageIDs maps a container name to the ID
+	// ContainerImageID returns. Missing -> "".
+	ContainerImageIDs map[string]string
+
 	// Calls records the sequence of method invocations (e.g.
 	// "PullImage:axllent/mailpit:v1.21"). Tests assert against it.
 	Calls []string
@@ -26,9 +33,11 @@ type Fake struct {
 // NewFake returns an initialised Fake.
 func NewFake() *Fake {
 	return &Fake{
-		States:  map[string]ContainerState{},
-		Volumes: map[string]bool{},
-		Images:  map[string]bool{},
+		States:            map[string]ContainerState{},
+		Volumes:           map[string]bool{},
+		Images:            map[string]bool{},
+		ImageIDs:          map[string]string{},
+		ContainerImageIDs: map[string]string{},
 	}
 }
 
@@ -60,6 +69,16 @@ func (f *Fake) PullImage(image string) error {
 func (f *Fake) ImagePresent(image string) (bool, error) {
 	f.record("ImagePresent:" + image)
 	return f.Images[image], nil
+}
+
+func (f *Fake) ImageID(ref string) (string, error) {
+	f.record("ImageID:" + ref)
+	return f.ImageIDs[ref], nil
+}
+
+func (f *Fake) ContainerImageID(name string) (string, error) {
+	f.record("ContainerImageID:" + name)
+	return f.ContainerImageIDs[name], nil
 }
 
 func (f *Fake) ContainerState(name string) (ContainerState, error) {
