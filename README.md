@@ -30,6 +30,7 @@ mailpitter install [--ephemeral]
 mailpitter start
 mailpitter stop
 mailpitter restart
+mailpitter upgrade
 mailpitter status [--json]
 mailpitter doctor [--fix] [--yes] [--json]
 mailpitter register <name> [--service <svc>] [--mail-vars django|laravel]
@@ -40,6 +41,8 @@ mailpitter reset --confirm=yes   # or: CONFIRM=yes mailpitter reset
 ```
 
 `install` is idempotent. `start`/`stop` keep the caddy_shack route in sync.
+`upgrade` pulls the latest mailpit image and recreates the container,
+preserving stored mail; it is a no-op when already current.
 `register` writes to state and prints a copy-pasteable `.env` +
 `docker-compose.yml` snippet to stdout. `reset` wipes the container and the
 data volume; registered consumers are preserved.
