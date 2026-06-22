@@ -67,6 +67,7 @@ full design.`,
 	root.AddCommand(newListCmd())
 	root.AddCommand(newOpenCmd())
 	root.AddCommand(newResetCmd())
+	root.AddCommand(newUpgradeCmd())
 	applyHelpBareword(root)
 	return root
 }
