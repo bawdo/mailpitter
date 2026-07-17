@@ -7,25 +7,30 @@ LDFLAGS := -X github.com/bawdo/mailpitter/internal/version.Version=$(VERSION) \
            -X github.com/bawdo/mailpitter/internal/version.Tag=$(TAG) \
            -X github.com/bawdo/mailpitter/internal/version.Dirty=$(DIRTY)
 
-build:
+.DEFAULT_GOAL := help
+
+help: ## List available targets and their descriptions
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+build: ## Build the mailpitter binary into bin/
 	go build -ldflags "$(LDFLAGS)" -o bin/mailpitter .
 
-install:
+install: ## Install mailpitter into the Go bin directory
 	go install -ldflags "$(LDFLAGS)" .
 
-test:
+test: ## Run the unit tests
 	go test ./...
 
-lint:
+lint: ## Run golangci-lint
 	golangci-lint run
 
-integration:
+integration: ## Run the integration tests
 	go test -tags integration -v ./test/integration/...
 
-pre-ci:
+pre-ci: ## Run the pre-CI checks
 	./scripts/pre-ci-check.sh
 
-pre-ci-fix:
+pre-ci-fix: ## Run the pre-CI checks and auto-fix gofmt
 	./scripts/pre-ci-check.sh --fix gofmt
 
-.PHONY: build install test integration lint pre-ci pre-ci-fix
+.PHONY: help build install test integration lint pre-ci pre-ci-fix
