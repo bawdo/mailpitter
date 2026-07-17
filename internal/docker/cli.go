@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+// execCommand is a seam over exec.Command so tests can stub the `docker`
+// shell-out (see cli_test.go's helper-process pattern). Production always
+// uses the real exec.Command.
+var execCommand = exec.Command
+
 // CLI is the production Client. Shells out to the `docker` binary on PATH.
 type CLI struct{}
 
@@ -16,21 +21,21 @@ type CLI struct{}
 func NewCLI() *CLI { return &CLI{} }
 
 func (CLI) DaemonReachable() error {
-	if err := exec.Command("docker", "info").Run(); err != nil {
+	if err := execCommand("docker", "info").Run(); err != nil {
 		return fmt.Errorf("%w: %v", ErrDaemonUnreachable, err)
 	}
 	return nil
 }
 
 func (CLI) EnsureVolume(name string) error {
-	if out, err := exec.Command("docker", "volume", "create", name).CombinedOutput(); err != nil {
+	if out, err := execCommand("docker", "volume", "create", name).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker volume create %s: %w: %s", name, err, out)
 	}
 	return nil
 }
 
 func (CLI) RemoveVolume(name string) error {
-	out, err := exec.Command("docker", "volume", "rm", name).CombinedOutput()
+	out, err := execCommand("docker", "volume", "rm", name).CombinedOutput()
 	if err != nil {
 		if strings.Contains(strings.ToLower(string(out)), "no such volume") {
 			return nil
@@ -41,14 +46,14 @@ func (CLI) RemoveVolume(name string) error {
 }
 
 func (CLI) PullImage(image string) error {
-	if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err != nil {
+	if out, err := execCommand("docker", "pull", image).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker pull %s: %w: %s", image, err, out)
 	}
 	return nil
 }
 
 func (CLI) ImagePresent(image string) (bool, error) {
-	err := exec.Command("docker", "image", "inspect", image).Run()
+	err := execCommand("docker", "image", "inspect", image).Run()
 	if err == nil {
 		return true, nil
 	}
@@ -60,7 +65,7 @@ func (CLI) ImagePresent(image string) (bool, error) {
 }
 
 func (CLI) ImageID(ref string) (string, error) {
-	out, err := exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", ref).Output()
+	out, err := execCommand("docker", "image", "inspect", "--format", "{{.Id}}", ref).Output()
 	if err != nil {
 		return "", fmt.Errorf("docker image inspect %s: %w", ref, err)
 	}
@@ -68,7 +73,7 @@ func (CLI) ImageID(ref string) (string, error) {
 }
 
 func (CLI) ContainerImageID(name string) (string, error) {
-	out, err := exec.Command("docker", "inspect", "--format", "{{.Image}}", name).Output()
+	out, err := execCommand("docker", "inspect", "--format", "{{.Image}}", name).Output()
 	if err != nil {
 		return "", fmt.Errorf("docker inspect %s: %w", name, err)
 	}
@@ -76,7 +81,7 @@ func (CLI) ContainerImageID(name string) (string, error) {
 }
 
 func (CLI) ContainerState(name string) (ContainerState, error) {
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Running}}", name)
+	cmd := execCommand("docker", "inspect", "--format", "{{.State.Running}}", name)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -111,28 +116,28 @@ func (CLI) CreateAndStart(spec ContainerSpec) error {
 	}
 	args = append(args, spec.Image)
 	args = append(args, spec.Command...)
-	if out, err := exec.Command("docker", args...).CombinedOutput(); err != nil {
+	if out, err := execCommand("docker", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker run: %w: %s", err, out)
 	}
 	return nil
 }
 
 func (CLI) Start(name string) error {
-	if out, err := exec.Command("docker", "start", name).CombinedOutput(); err != nil {
+	if out, err := execCommand("docker", "start", name).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker start %s: %w: %s", name, err, out)
 	}
 	return nil
 }
 
 func (CLI) Stop(name string) error {
-	if out, err := exec.Command("docker", "stop", name).CombinedOutput(); err != nil {
+	if out, err := execCommand("docker", "stop", name).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker stop %s: %w: %s", name, err, out)
 	}
 	return nil
 }
 
 func (CLI) Remove(name string) error {
-	out, err := exec.Command("docker", "rm", "-f", name).CombinedOutput()
+	out, err := execCommand("docker", "rm", "-f", name).CombinedOutput()
 	if err != nil {
 		lower := strings.ToLower(string(out))
 		if strings.Contains(lower, "no such object") || strings.Contains(lower, "no such container") {

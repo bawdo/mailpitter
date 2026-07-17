@@ -6,6 +6,19 @@ import "fmt"
 type Fake struct {
 	DaemonErr error
 
+	// Per-method error hooks. When set, the corresponding method returns
+	// the error instead of its success result, so callers can exercise
+	// their failure branches. All default nil (success), matching the
+	// DaemonErr convention above.
+	ContainerStateErr error
+	EnsureVolumeErr   error
+	RemoveVolumeErr   error
+	PullImageErr      error
+	CreateAndStartErr error
+	StartErr          error
+	StopErr           error
+	RemoveErr         error
+
 	// States indexes container name -> state. Missing entries default to absent.
 	States map[string]ContainerState
 
@@ -50,18 +63,27 @@ func (f *Fake) DaemonReachable() error {
 
 func (f *Fake) EnsureVolume(name string) error {
 	f.record("EnsureVolume:" + name)
+	if f.EnsureVolumeErr != nil {
+		return f.EnsureVolumeErr
+	}
 	f.Volumes[name] = true
 	return nil
 }
 
 func (f *Fake) RemoveVolume(name string) error {
 	f.record("RemoveVolume:" + name)
+	if f.RemoveVolumeErr != nil {
+		return f.RemoveVolumeErr
+	}
 	delete(f.Volumes, name)
 	return nil
 }
 
 func (f *Fake) PullImage(image string) error {
 	f.record("PullImage:" + image)
+	if f.PullImageErr != nil {
+		return f.PullImageErr
+	}
 	f.Images[image] = true
 	return nil
 }
@@ -83,6 +105,9 @@ func (f *Fake) ContainerImageID(name string) (string, error) {
 
 func (f *Fake) ContainerState(name string) (ContainerState, error) {
 	f.record("ContainerState:" + name)
+	if f.ContainerStateErr != nil {
+		return StateAbsent, f.ContainerStateErr
+	}
 	if st, ok := f.States[name]; ok {
 		return st, nil
 	}
@@ -91,6 +116,9 @@ func (f *Fake) ContainerState(name string) (ContainerState, error) {
 
 func (f *Fake) CreateAndStart(spec ContainerSpec) error {
 	f.record(fmt.Sprintf("CreateAndStart:%s", spec.Name))
+	if f.CreateAndStartErr != nil {
+		return f.CreateAndStartErr
+	}
 	f.LastSpec = spec
 	f.States[spec.Name] = StateRunning
 	return nil
@@ -98,18 +126,27 @@ func (f *Fake) CreateAndStart(spec ContainerSpec) error {
 
 func (f *Fake) Start(name string) error {
 	f.record("Start:" + name)
+	if f.StartErr != nil {
+		return f.StartErr
+	}
 	f.States[name] = StateRunning
 	return nil
 }
 
 func (f *Fake) Stop(name string) error {
 	f.record("Stop:" + name)
+	if f.StopErr != nil {
+		return f.StopErr
+	}
 	f.States[name] = StateStopped
 	return nil
 }
 
 func (f *Fake) Remove(name string) error {
 	f.record("Remove:" + name)
+	if f.RemoveErr != nil {
+		return f.RemoveErr
+	}
 	delete(f.States, name)
 	return nil
 }
