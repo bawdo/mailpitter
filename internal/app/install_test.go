@@ -40,14 +40,14 @@ func newTestAppWithNotices(t *testing.T) (*App, *docker.Fake, *fakeCaddy, notice
 }
 
 type fakeCaddy struct {
-	registers     []string
-	deregisters   []string
-	registerErr   error
-	status        caddyshack.Status
-	statusErr     error
-	backends      []caddyshack.Backend
-	listErr       error
-	installedErr  error
+	registers    []string
+	deregisters  []string
+	registerErr  error
+	status       caddyshack.Status
+	statusErr    error
+	backends     []caddyshack.Backend
+	listErr      error
+	installedErr error
 }
 
 func (f *fakeCaddy) Installed() error { return f.installedErr }
