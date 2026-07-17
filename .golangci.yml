@@ -25,3 +25,23 @@ linters:
       - linters:
           - staticcheck
         text: "QF1011"
+      # gosec G204 (subprocess launched with a variable) fires on every
+      # exec.Command in the docker/caddyshack clients. These shell out to
+      # the `docker`/`caddy_shack` binaries with app-derived args
+      # (container/volume/image names, the pinned Image constant, registered
+      # service names) passed as individual argv elements, no shell. There
+      # is no injection surface, so scope the suppression to those two
+      # packages and leave gosec live everywhere else. The one genuinely
+      # shell-backed call (cmd/doctor.go `sh -c`) keeps an inline nolint so
+      # any new sh -c risk still surfaces.
+      - path: internal/(docker|caddyshack)/
+        linters:
+          - gosec
+        text: "G204"
+      # gosec G304 (file inclusion via variable) fires on the state.json and
+      # lock-file IO. Those paths are mailpitter's own app-owned config
+      # locations, never external input.
+      - path: internal/state/
+        linters:
+          - gosec
+        text: "G304"

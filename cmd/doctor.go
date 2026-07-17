@@ -98,7 +98,10 @@ func runFixLoop(cmd *cobra.Command, rep app.DoctorReport, yes bool) error {
 				continue
 			}
 		}
-		ec := exec.CommandContext(cmd.Context(), "sh", "-c", r.Fix.Command)
+		// Fix.Command values are compile-time literals defined in
+		// internal/app/doctor_checks.go, never external input. They MUST
+		// stay literal-only for this shell invocation to remain safe.
+		ec := exec.CommandContext(cmd.Context(), "sh", "-c", r.Fix.Command) //nolint:gosec // Fix.Command is a fixed internal literal, not user input
 		ec.Stdout = out
 		ec.Stderr = cmd.ErrOrStderr()
 		if err := ec.Run(); err != nil {
