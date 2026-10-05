@@ -46,7 +46,10 @@ extra_hosts:
 
 If your project still defines its own `mailpit` service in
 `docker-compose.yml`, remove it — the shared mailpitter container owns
-ports 1025 and 8025 on `127.0.0.1`.
+ports 1025 and 8025 on `127.0.0.1`. On native Linux Docker Engine it also
+publishes 1025 on the docker0 gateway, which is where `host-gateway` points.
+With ufw active you need one allow rule; `mailpitter doctor` prints it. See
+[Reaching SMTP from other containers](README.md#reaching-smtp-from-other-containers).
 
 ## 3. Verify
 

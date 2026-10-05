@@ -41,6 +41,24 @@ type Fake struct {
 
 	// LastSpec is the most recent ContainerSpec passed to CreateAndStart.
 	LastSpec ContainerSpec
+
+	// Engine is what EngineInfo returns; EngineInfoErr overrides it.
+	Engine        EngineInfo
+	EngineInfoErr error
+
+	// Gateway is what BridgeGateway returns; GatewayErr overrides it.
+	Gateway    string
+	GatewayErr error
+
+	// PortBindings / Mounts index container name -> what the inspect
+	// helpers return. CreateAndStart populates both from the spec.
+	PortBindings map[string][]PortMapping
+	Mounts       map[string][]VolumeMount
+
+	// Networks indexes container name -> attached networks. CreateAndStart
+	// attaches "bridge" (docker run's default); ConnectNetwork appends.
+	Networks          map[string][]string
+	ConnectNetworkErr error
 }
 
 // NewFake returns an initialised Fake.
@@ -51,6 +69,9 @@ func NewFake() *Fake {
 		Images:            map[string]bool{},
 		ImageIDs:          map[string]string{},
 		ContainerImageIDs: map[string]string{},
+		PortBindings:      map[string][]PortMapping{},
+		Mounts:            map[string][]VolumeMount{},
+		Networks:          map[string][]string{},
 	}
 }
 
@@ -121,6 +142,9 @@ func (f *Fake) CreateAndStart(spec ContainerSpec) error {
 	}
 	f.LastSpec = spec
 	f.States[spec.Name] = StateRunning
+	f.PortBindings[spec.Name] = spec.PortMappings
+	f.Mounts[spec.Name] = spec.Volumes
+	f.Networks[spec.Name] = []string{"bridge"}
 	return nil
 }
 
@@ -148,5 +172,42 @@ func (f *Fake) Remove(name string) error {
 		return f.RemoveErr
 	}
 	delete(f.States, name)
+	delete(f.PortBindings, name)
+	delete(f.Mounts, name)
+	delete(f.Networks, name)
+	return nil
+}
+
+func (f *Fake) EngineInfo() (EngineInfo, error) {
+	f.record("EngineInfo")
+	return f.Engine, f.EngineInfoErr
+}
+
+func (f *Fake) BridgeGateway() (string, error) {
+	f.record("BridgeGateway")
+	return f.Gateway, f.GatewayErr
+}
+
+func (f *Fake) ContainerPortBindings(name string) ([]PortMapping, error) {
+	f.record("ContainerPortBindings:" + name)
+	return f.PortBindings[name], nil
+}
+
+func (f *Fake) ContainerMounts(name string) ([]VolumeMount, error) {
+	f.record("ContainerMounts:" + name)
+	return f.Mounts[name], nil
+}
+
+func (f *Fake) ContainerNetworks(name string) ([]string, error) {
+	f.record("ContainerNetworks:" + name)
+	return f.Networks[name], nil
+}
+
+func (f *Fake) ConnectNetwork(network, container string) error {
+	f.record("ConnectNetwork:" + network + ":" + container)
+	if f.ConnectNetworkErr != nil {
+		return f.ConnectNetworkErr
+	}
+	f.Networks[container] = append(f.Networks[container], network)
 	return nil
 }

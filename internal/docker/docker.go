@@ -45,6 +45,21 @@ type Client interface {
 	Start(name string) error
 	Stop(name string) error
 	Remove(name string) error
+	EngineInfo() (EngineInfo, error)
+	BridgeGateway() (string, error)
+	ContainerPortBindings(name string) ([]PortMapping, error)
+	ContainerMounts(name string) ([]VolumeMount, error)
+	ContainerNetworks(name string) ([]string, error)
+	ConnectNetwork(network, container string) error
+}
+
+// EngineInfo is the subset of `docker info` used to classify the engine
+// (native Linux Engine vs Docker Desktop / a VM-backed runtime).
+type EngineInfo struct {
+	OperatingSystem string
+	OSType          string
+	Name            string
+	Labels          []string
 }
 
 // ContainerSpec describes the container CreateAndStart should run.

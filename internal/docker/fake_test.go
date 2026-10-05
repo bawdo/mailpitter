@@ -73,3 +73,33 @@ func TestFakeImageIDs(t *testing.T) {
 		t.Errorf("unknown ref should return empty, got %q", missing)
 	}
 }
+
+func TestFakeEngineAndInspectHelpers(t *testing.T) {
+	f := NewFake()
+	f.Engine = EngineInfo{OSType: "linux"}
+	f.Gateway = "172.17.0.1"
+	spec := ContainerSpec{
+		Name:         "c",
+		PortMappings: []PortMapping{{HostAddr: "127.0.0.1", HostPort: 1025, ContainerPort: 1025}},
+		Volumes:      []VolumeMount{{VolumeName: "v", ContainerPath: "/data"}},
+	}
+	if err := f.CreateAndStart(spec); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := f.EngineInfo(); err != nil || info.OSType != "linux" {
+		t.Errorf("EngineInfo = %+v, %v", info, err)
+	}
+	if gw, err := f.BridgeGateway(); err != nil || gw != "172.17.0.1" {
+		t.Errorf("BridgeGateway = %q, %v", gw, err)
+	}
+	if pb, _ := f.ContainerPortBindings("c"); len(pb) != 1 {
+		t.Errorf("PortBindings = %+v", pb)
+	}
+	if m, _ := f.ContainerMounts("c"); len(m) != 1 {
+		t.Errorf("Mounts = %+v", m)
+	}
+	_ = f.Remove("c")
+	if pb, _ := f.ContainerPortBindings("c"); len(pb) != 0 {
+		t.Errorf("Remove should clear bindings, got %+v", pb)
+	}
+}

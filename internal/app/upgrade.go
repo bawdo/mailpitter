@@ -12,7 +12,7 @@ import (
 
 // Upgrade pulls axllent/mailpit:latest and, if it differs from the image
 // the current container runs, recreates the container against it
-// (preserving the data volume), records the new image in state, and
+// (preserving the data volume and network attachments), records the new image in state, and
 // re-registers mailpit.test with caddy_shack. If the pulled image matches
 // what is already running, it reports "already up to date" and leaves the
 // container untouched.
@@ -52,7 +52,11 @@ func (a *App) Upgrade(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	hn := a.hostNetwork()
+	a.noteUnknownEngine(hn)
+
 	if newID == curID {
+		a.noteMissingSMTPGateway(hn)
 		if v, ok := a.mailpitVersion(); ok {
 			_, _ = fmt.Fprintf(a.notices, "already up to date (%s)\n", v)
 		} else {
@@ -70,15 +74,7 @@ func (a *App) Upgrade(ctx context.Context) error {
 	}
 	defer func() { _ = lock.Release() }()
 
-	if err := a.docker.Remove(ContainerName); err != nil {
-		return err
-	}
-	if s.Install.Mode == state.ModePersistent {
-		if err := a.docker.EnsureVolume(DataVolume); err != nil {
-			return err
-		}
-	}
-	if err := a.docker.CreateAndStart(containerSpec(s.Install.Mode, LatestImage)); err != nil {
+	if err := a.recreateContainer(containerSpec(s.Install.Mode, LatestImage, hn.Gateway)); err != nil {
 		return err
 	}
 
@@ -97,6 +93,7 @@ func (a *App) Upgrade(ctx context.Context) error {
 	} else {
 		_, _ = fmt.Fprintln(a.notices, "upgrade complete; run mailpitter status to confirm version")
 	}
+	a.noteUFW(hn)
 	return nil
 }
 

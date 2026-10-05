@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/bawdo/mailpitter/internal/caddyshack"
 	"github.com/bawdo/mailpitter/internal/docker"
@@ -117,6 +118,83 @@ func checkPortFree(name string, port int) CheckResult {
 
 func checkPortSMTP(_ *App) CheckResult { return checkPortFree("port-1025", SMTPPort) }
 func checkPortUI(_ *App) CheckResult   { return checkPortFree("port-8025", UIPort) }
+
+// dialTCP is a seam over the reachability probe so tests stay off the
+// network.
+var dialTCP = func(addr string) error {
+	c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return err
+	}
+	return c.Close()
+}
+
+// checkSMTPGatewayBinding confirms that, on a native Linux engine, the
+// container publishes SMTP on the docker0 gateway as well as loopback, so
+// other containers can reach it via host.docker.internal.
+func checkSMTPGatewayBinding(a *App) CheckResult {
+	const name = "smtp-gateway-binding"
+	hn := a.hostNetwork()
+	switch hn.Kind {
+	case EngineLoopbackForwarded:
+		return CheckResult{Name: name, Status: SeveritySkip, Summary: "not needed: " + hn.Reason + " forwards host.docker.internal to loopback"}
+	case EngineUnknown:
+		return CheckResult{Name: name, Status: SeveritySkip, Summary: "engine not classified; loopback-only bindings kept", Detail: []string{hn.Reason}}
+	}
+	st, err := a.docker.ContainerState(ContainerName)
+	if err != nil || st == docker.StateAbsent {
+		return CheckResult{Name: name, Status: SeveritySkip, Summary: "container not installed"}
+	}
+	bindings, err := a.docker.ContainerPortBindings(ContainerName)
+	if err != nil {
+		return CheckResult{Name: name, Status: SeverityFail, Summary: err.Error()}
+	}
+	addr := net.JoinHostPort(hn.Gateway, strconv.Itoa(SMTPPort))
+	if smtpGatewayMissing(hn, bindings) {
+		return CheckResult{
+			Name: name, Status: SeverityFail,
+			Summary: addr + " not published; containers cannot reach SMTP via host.docker.internal",
+			Detail:  []string{"the container predates the gateway binding; install recreates it (persistent mode keeps stored mail)"},
+			Fix:     &FixHint{Label: "mailpitter install", Command: "mailpitter install"},
+		}
+	}
+	return CheckResult{Name: name, Status: SeverityPass, Summary: addr + " published"}
+}
+
+// checkSMTPGatewayReachable dials the gateway-published SMTP port from the
+// host and reports whether ufw will admit container traffic to it. The
+// host-side dial proves the port is listening but not the firewall path
+// (host-originated traffic to its own docker0 address bypasses ufw's
+// input rules), hence the separate rule check.
+func checkSMTPGatewayReachable(a *App) CheckResult {
+	const name = "smtp-gateway-reachable"
+	hn := a.hostNetwork()
+	if hn.Kind != EngineNativeLinux {
+		return CheckResult{Name: name, Status: SeveritySkip, Summary: "not a native Linux engine"}
+	}
+	addr := net.JoinHostPort(hn.Gateway, strconv.Itoa(SMTPPort))
+	if err := dialTCP(addr); err != nil {
+		return CheckResult{Name: name, Status: SeverityFail, Summary: addr + " not listening: " + err.Error()}
+	}
+	ufw, err := readUFWStatus(hn.Gateway)
+	switch {
+	case err != nil:
+		return CheckResult{
+			Name: name, Status: SeverityWarn,
+			Summary: addr + " listening; could not read ufw config",
+			Detail:  []string{err.Error(), "if ufw is active, run: " + ufwRule(hn.Gateway)},
+		}
+	case !ufw.Active:
+		return CheckResult{Name: name, Status: SeverityPass, Summary: addr + " listening; ufw not active"}
+	case ufw.RuleSource == "":
+		return CheckResult{
+			Name: name, Status: SeverityWarn,
+			Summary: addr + " listening; ufw is active and has no rule admitting containers",
+			Detail:  []string{"containers will time out connecting to host.docker.internal:1025", "run: " + ufwRule(hn.Gateway)},
+		}
+	}
+	return CheckResult{Name: name, Status: SeverityPass, Summary: addr + " listening; ufw allows from " + ufw.RuleSource}
+}
 
 // checkCaddyShackInstalled reports whether the caddy_shack binary is on
 // $PATH. Uses exec.LookPath via the caddyshack client - the previous
