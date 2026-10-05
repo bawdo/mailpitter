@@ -157,7 +157,7 @@ func TestInstallDockerDown(t *testing.T) {
 }
 
 func TestContainerSpecPersistent(t *testing.T) {
-	spec := containerSpec(state.ModePersistent, "img:test")
+	spec := containerSpec(state.ModePersistent, "img:test", "")
 	if spec.Name != ContainerName {
 		t.Errorf("Name = %q", spec.Name)
 	}
@@ -176,7 +176,7 @@ func TestContainerSpecPersistent(t *testing.T) {
 }
 
 func TestContainerSpecEphemeral(t *testing.T) {
-	spec := containerSpec(state.ModeEphemeral, "img:test")
+	spec := containerSpec(state.ModeEphemeral, "img:test", "")
 	if len(spec.Volumes) != 0 {
 		t.Errorf("ephemeral spec should mount no volumes, got %d", len(spec.Volumes))
 	}

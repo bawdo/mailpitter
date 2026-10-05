@@ -252,3 +252,140 @@ func TestFakeExecIsolation(t *testing.T) {
 		t.Errorf("out = %q", out)
 	}
 }
+
+func TestRunArgs(t *testing.T) {
+	spec := ContainerSpec{
+		Name:  "c",
+		Image: "img",
+		Env:   []string{"A=1"},
+		PortMappings: []PortMapping{
+			{HostAddr: "127.0.0.1", HostPort: 1025, ContainerPort: 1025},
+			{HostAddr: "172.17.0.1", HostPort: 1025, ContainerPort: 1025},
+		},
+		Volumes: []VolumeMount{{VolumeName: "v", ContainerPath: "/data"}},
+		Command: []string{"--flag"},
+	}
+	got := strings.Join(RunArgs(spec), " ")
+	want := "run -d --name c --restart unless-stopped -e A=1 -p 127.0.0.1:1025:1025 -p 172.17.0.1:1025:1025 -v v:/data img --flag"
+	if got != want {
+		t.Errorf("RunArgs =\n %s\nwant\n %s", got, want)
+	}
+}
+
+func TestEngineInfo(t *testing.T) {
+	fakeExec(t, `{"OperatingSystem":"Docker Desktop","OSType":"linux","Name":"docker-desktop","Labels":["com.docker.desktop.address=x"],"Other":1}`, "", 0)
+	info, err := (CLI{}).EngineInfo()
+	if err != nil {
+		t.Fatalf("EngineInfo: %v", err)
+	}
+	if info.OperatingSystem != "Docker Desktop" || info.OSType != "linux" || info.Name != "docker-desktop" || len(info.Labels) != 1 {
+		t.Errorf("info = %+v", info)
+	}
+	fakeExec(t, "not json", "", 0)
+	if _, err := (CLI{}).EngineInfo(); err == nil {
+		t.Error("expected parse error")
+	}
+	fakeExec(t, "", "boom", 1)
+	if _, err := (CLI{}).EngineInfo(); err == nil {
+		t.Error("expected exec error")
+	}
+}
+
+func TestBridgeGateway(t *testing.T) {
+	fakeExec(t, `[{"Subnet":"fd00::/64","Gateway":"fd00::1"},{"Subnet":"172.17.0.0/16","Gateway":"172.17.0.1"}]`, "", 0)
+	gw, err := (CLI{}).BridgeGateway()
+	if err != nil || gw != "172.17.0.1" {
+		t.Fatalf("BridgeGateway = %q, %v", gw, err)
+	}
+	for _, out := range []string{`[]`, `[{"Subnet":"172.17.0.0/16"}]`, `null`, `bad`} {
+		fakeExec(t, out, "", 0)
+		if gw, err := (CLI{}).BridgeGateway(); err == nil {
+			t.Errorf("%s: expected error, got %q", out, gw)
+		}
+	}
+	fakeExec(t, "", "no such network", 1)
+	if _, err := (CLI{}).BridgeGateway(); err == nil {
+		t.Error("expected exec error")
+	}
+}
+
+func TestContainerPortBindings(t *testing.T) {
+	fakeExec(t, `{"8025/tcp":[{"HostIp":"127.0.0.1","HostPort":"8025"}],"1025/tcp":[{"HostIp":"172.17.0.1","HostPort":"1025"},{"HostIp":"127.0.0.1","HostPort":"1025"}]}`, "", 0)
+	got, err := (CLI{}).ContainerPortBindings("c")
+	if err != nil {
+		t.Fatalf("ContainerPortBindings: %v", err)
+	}
+	want := []PortMapping{
+		{HostAddr: "127.0.0.1", HostPort: 1025, ContainerPort: 1025},
+		{HostAddr: "172.17.0.1", HostPort: 1025, ContainerPort: 1025},
+		{HostAddr: "127.0.0.1", HostPort: 8025, ContainerPort: 8025},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	fakeExec(t, `null`, "", 0)
+	if got, err := (CLI{}).ContainerPortBindings("c"); err != nil || len(got) != 0 {
+		t.Errorf("null bindings = %+v, %v", got, err)
+	}
+	for _, out := range []string{`bad`, `{"x/tcp":[]}`} {
+		fakeExec(t, out, "", 0)
+		if _, err := (CLI{}).ContainerPortBindings("c"); err == nil {
+			t.Errorf("%s: expected error", out)
+		}
+	}
+	fakeExec(t, "", "no such object", 1)
+	if _, err := (CLI{}).ContainerPortBindings("c"); err == nil {
+		t.Error("expected exec error")
+	}
+}
+
+func TestContainerMounts(t *testing.T) {
+	fakeExec(t, `[{"Type":"volume","Name":"mailpitter_data","Destination":"/data"},{"Type":"bind","Source":"/x","Destination":"/y"}]`, "", 0)
+	got, err := (CLI{}).ContainerMounts("c")
+	if err != nil {
+		t.Fatalf("ContainerMounts: %v", err)
+	}
+	if len(got) != 1 || got[0] != (VolumeMount{VolumeName: "mailpitter_data", ContainerPath: "/data"}) {
+		t.Errorf("mounts = %+v", got)
+	}
+	fakeExec(t, `bad`, "", 0)
+	if _, err := (CLI{}).ContainerMounts("c"); err == nil {
+		t.Error("expected parse error")
+	}
+	fakeExec(t, "", "no such object", 1)
+	if _, err := (CLI{}).ContainerMounts("c"); err == nil {
+		t.Error("expected exec error")
+	}
+}
+
+func TestContainerNetworks(t *testing.T) {
+	fakeExec(t, `{"caddy_shack":{"IPAddress":"172.18.0.2"},"bridge":{"IPAddress":"172.17.0.3"}}`, "", 0)
+	got, err := (CLI{}).ContainerNetworks("c")
+	if err != nil || strings.Join(got, ",") != "bridge,caddy_shack" {
+		t.Fatalf("ContainerNetworks = %v, %v", got, err)
+	}
+	fakeExec(t, `bad`, "", 0)
+	if _, err := (CLI{}).ContainerNetworks("c"); err == nil {
+		t.Error("expected parse error")
+	}
+	fakeExec(t, "", "no such object", 1)
+	if _, err := (CLI{}).ContainerNetworks("c"); err == nil {
+		t.Error("expected exec error")
+	}
+}
+
+func TestConnectNetwork(t *testing.T) {
+	fakeExec(t, "", "", 0)
+	if err := (CLI{}).ConnectNetwork("n", "c"); err != nil {
+		t.Fatalf("ConnectNetwork: %v", err)
+	}
+	fakeExec(t, "", "boom", 1)
+	if err := (CLI{}).ConnectNetwork("n", "c"); err == nil {
+		t.Error("expected error")
+	}
+}

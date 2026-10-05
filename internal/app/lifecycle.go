@@ -31,7 +31,23 @@ func (a *App) Start(ctx context.Context) error {
 		return CaddyShackf(err, "register %s", Domain)
 	}
 	_, _ = fmt.Fprintln(a.notices, "registered mailpit.test with caddy_shack")
+	hn := a.hostNetwork()
+	a.noteUnknownEngine(hn)
+	a.noteMissingSMTPGateway(hn)
+	a.noteUFW(hn)
 	return nil
+}
+
+// noteMissingSMTPGateway points the user at `install` when the running
+// container predates the docker0-gateway SMTP binding. Best-effort.
+func (a *App) noteMissingSMTPGateway(hn HostNetwork) {
+	bindings, err := a.docker.ContainerPortBindings(ContainerName)
+	if err != nil || !smtpGatewayMissing(hn, bindings) {
+		return
+	}
+	_, _ = fmt.Fprintf(a.notices,
+		"container %q does not publish SMTP on %s:%d; run: mailpitter install (recreates it, keeping stored mail)\n",
+		ContainerName, hn.Gateway, SMTPPort)
 }
 
 // Stop deregisters mailpit.test with caddy_shack first (so no dangling

@@ -10,7 +10,9 @@ go install github.com/bawdo/mailpitter@latest
 ```
 
 Prerequisites:
-- Docker Desktop (or a Linux docker daemon)
+- Docker Desktop (or a Linux docker daemon; see
+  [Reaching SMTP from other containers](#reaching-smtp-from-other-containers)
+  for the Linux ufw step)
 - [caddy_shack](https://github.com/bawdo/caddy_shack) installed and running
 
 ## Quickstart
@@ -46,6 +48,64 @@ preserving stored mail; it is a no-op when already current.
 `register` writes to state and prints a copy-pasteable `.env` +
 `docker-compose.yml` snippet to stdout. `reset` wipes the container and the
 data volume; registered consumers are preserved.
+
+## Reaching SMTP from other containers
+
+Containers reach mailpit's SMTP port through the host, using
+`host-gateway` (`extra_hosts: "host.docker.internal:host-gateway"`, or the
+`mailpit.test:host-gateway` entry `register` prints). How that works depends
+on the Docker engine, which mailpitter detects from `docker info`:
+
+| Engine | SMTP (1025) published on | UI (8025) published on |
+|--------|--------------------------|------------------------|
+| Docker Desktop (macOS or Linux), OrbStack, Colima, Lima, Rancher Desktop | `127.0.0.1` | `127.0.0.1` |
+| Native Docker Engine on Linux | `127.0.0.1` and the docker0 bridge gateway (e.g. `172.17.0.1`) | `127.0.0.1` |
+| Unrecognised | `127.0.0.1` (mailpitter says it could not classify the engine) | `127.0.0.1` |
+
+- **macOS / Docker Desktop:** the runtime forwards `host.docker.internal` to
+  ports bound on the host's loopback, so the loopback binding is enough.
+- **Native Linux:** `host-gateway` resolves to the docker0 gateway, and a
+  loopback-only port is unreachable there. mailpitter reads the gateway from
+  `docker network inspect bridge` and publishes SMTP on it as well. That
+  address is only reachable from this host and its containers, never the
+  LAN. Nothing binds `0.0.0.0`.
+
+A container created by an older mailpitter has no gateway binding, and Docker
+cannot add one in place. `mailpitter install` detects this and recreates the
+container. Stored mail survives because it lives in the `mailpitter_data`
+volume, and the container's networks (e.g. `caddy_shack`) are reattached. In
+ephemeral mode, or if the volume isn't mounted, mailpitter won't recreate the
+container automatically. It prints the command to run instead.
+`mailpitter start` and `mailpitter doctor` (`smtp-gateway-binding`) flag a
+container that is missing the binding.
+
+### ufw (Linux)
+
+With ufw's default `deny incoming`, traffic from containers to the gateway is
+dropped, and senders see `Operation timed out`. mailpitter never runs sudo or
+edits the firewall. When ufw is active and no rule admits the traffic,
+`install`, `start` and `doctor` (`smtp-gateway-reachable`) print the rule to
+add:
+
+```
+sudo ufw allow from 172.16.0.0/12 to 172.17.0.1 port 1025 proto tcp comment 'allow-docker-mailpit'
+```
+
+(using your engine's gateway in place of `172.17.0.1`). `172.16.0.0/12`
+covers Docker's default bridge and user-defined network pools. If your
+networks come from another range (e.g. Docker allocating from `192.168.0.0/16`
+once 172.16–31 is exhausted), add a matching rule for that source.
+
+ufw detection reads `/etc/ufw/ufw.conf` and `/etc/ufw/user.rules`, which are
+world-readable, so no root is needed. To check from a container on a
+non-default network:
+
+```
+docker network create mp-test
+docker run --rm --network mp-test --add-host host.docker.internal:host-gateway \
+  busybox sh -c 'echo QUIT | nc -w3 host.docker.internal 1025'   # expect: 220 ... Mailpit ESMTP
+docker network rm mp-test
+```
 
 ## Exit codes
 

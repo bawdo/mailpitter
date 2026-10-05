@@ -27,6 +27,8 @@ func allChecks() []func(*App) CheckResult {
 		checkMailpitAPI,
 		checkPortSMTP,
 		checkPortUI,
+		checkSMTPGatewayBinding,
+		checkSMTPGatewayReachable,
 		checkCaddyRoute,
 		checkInstallModeMatch,
 	}
