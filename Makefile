@@ -44,4 +44,8 @@ test-scripts: ## Run the shell script test suites
 changelog: ## Check CHANGELOG.md is well formed and matches the tags
 	scripts/changelog.sh check
 
-.PHONY: help build install test test-scripts lint vuln integration changelog pre-ci pre-ci-fix
+release: ## Tag a release: make release RELEASE_VERSION=X.Y.Z (never pushes)
+	@test -n "$(RELEASE_VERSION)" || { echo "usage: make release RELEASE_VERSION=X.Y.Z"; exit 1; }
+	scripts/release.sh $(RELEASE_VERSION)
+
+.PHONY: help build install test test-scripts lint vuln integration changelog release pre-ci pre-ci-fix

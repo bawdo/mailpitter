@@ -25,6 +25,10 @@ var (
 	Dirty = ""
 )
 
+// readBuildInfo is debug.ReadBuildInfo, a variable so tests can substitute
+// a fake build info.
+var readBuildInfo = debug.ReadBuildInfo
+
 // Info bundles the resolved build identity printed by `mailpitter version`.
 type Info struct {
 	Version string
@@ -34,7 +38,10 @@ type Info struct {
 }
 
 // Resolve returns the build identity, preferring ldflags-set values and
-// filling missing Commit / Dirty from runtime.debug.ReadBuildInfo().
+// filling missing Version / Commit / Dirty from runtime.debug.ReadBuildInfo().
+// Version falls back to the main module version (set by `go install
+// module@version`) only while it is still the default "dev" and the build
+// info holds a real version, not "(devel)".
 func Resolve() Info {
 	out := Info{
 		Version: Version,
@@ -42,12 +49,15 @@ func Resolve() Info {
 		Tag:     Tag,
 		Dirty:   Dirty == "true",
 	}
-	if out.Commit != "" && Dirty != "" {
+	if out.Version != "dev" && out.Commit != "" && Dirty != "" {
 		return out
 	}
-	bi, ok := debug.ReadBuildInfo()
+	bi, ok := readBuildInfo()
 	if !ok {
 		return out
+	}
+	if out.Version == "dev" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		out.Version = bi.Main.Version
 	}
 	for _, s := range bi.Settings {
 		switch s.Key {
