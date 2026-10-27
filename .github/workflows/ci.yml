@@ -156,7 +156,8 @@ jobs:
             --pattern "$archive" --pattern checksums.txt --dir "$RUNNER_TEMP/cs"
           cd "$RUNNER_TEMP/cs"
           gh attestation verify "$archive" --repo bawdo/caddy_shack \
-            --signer-workflow bawdo/caddy_shack/.github/workflows/release.yml
+            --signer-workflow bawdo/caddy_shack/.github/workflows/release.yml \
+            --source-ref "refs/tags/v${CADDY_SHACK_VERSION}"
           sha256sum -c checksums.txt --ignore-missing
           tar -xzf "$archive"
           install -m 0755 "caddy_shack_${CADDY_SHACK_VERSION}_linux_amd64/caddy_shack" "$RUNNER_TEMP/bin/caddy_shack"
