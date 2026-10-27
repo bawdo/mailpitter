@@ -1,15 +1,57 @@
 # mailpitter
 
+[![CI](https://github.com/bawdo/mailpitter/actions/workflows/ci.yml/badge.svg)](https://github.com/bawdo/mailpitter/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/bawdo/mailpitter/graph/badge.svg)](https://codecov.io/gh/bawdo/mailpitter)
+[![Go Reference](https://pkg.go.dev/badge/github.com/bawdo/mailpitter.svg)](https://pkg.go.dev/github.com/bawdo/mailpitter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/bawdo/mailpitter/badge)](https://scorecard.dev/viewer/?uri=github.com/bawdo/mailpitter)
+
 A CLI that runs one shared local mailpit container, registers its UI with
 caddy_shack at `https://mailpit.test`, and helps consumer projects plug in.
 
 ## Install
 
+### From a release
+
+Each [release](https://github.com/bawdo/mailpitter/releases) ships four
+archives:
+
+- `mailpitter_<version>_darwin_amd64.tar.gz`
+- `mailpitter_<version>_darwin_arm64.tar.gz`
+- `mailpitter_<version>_linux_amd64.tar.gz`
+- `mailpitter_<version>_linux_arm64.tar.gz`
+
+Download the archive for your platform and `checksums.txt` from the Releases
+page, then verify, unpack and install it:
+
+```
+gh attestation verify mailpitter_<version>_<os>_<arch>.tar.gz --repo bawdo/mailpitter \
+  --signer-workflow bawdo/mailpitter/.github/workflows/release.yml
+sha256sum -c checksums.txt --ignore-missing
+tar -xzf mailpitter_<version>_<os>_<arch>.tar.gz
+install -m 0755 mailpitter_<version>_<os>_<arch>/mailpitter /usr/local/bin/mailpitter
+```
+
+The attestation check needs the [GitHub CLI](https://cli.github.com/); skip it
+if you don't have `gh`, but keep the checksum check. macOS has no `sha256sum`,
+so use `shasum -a 256 -c checksums.txt --ignore-missing` there.
+
+### From source
+
+With Go 1.25 or newer:
+
 ```
 go install github.com/bawdo/mailpitter@latest
 ```
 
-Prerequisites:
+Or from a clone:
+
+```
+make install
+```
+
+### Prerequisites
+
 - Docker Desktop (or a Linux docker daemon; see
   [Reaching SMTP from other containers](#reaching-smtp-from-other-containers)
   for the Linux ufw step)
@@ -148,7 +190,10 @@ test/
 
 Slow tests (real docker, real caddy_shack) live in `test/integration/`
 behind `//go:build integration`. Tests with missing deps `t.Skip` with a
-useful message rather than fail.
+useful message rather than fail, unless `MAILPITTER_INTEGRATION_STRICT` is
+set, when a missing prerequisite fails the test. CI sets it after
+installing caddy_shack and mailpitter, so a broken install step cannot
+turn the job into a silent pass.
 
 ```
 make integration
@@ -162,7 +207,20 @@ make pre-ci-fix   # auto-fix gofmt along the way
 make install      # local build into $GOBIN
 ```
 
+The pre-CI script skips the vulnerability scan and the Docker-backed
+integration tests; `make vuln` and `make integration` run those, matching
+the CI jobs.
+
+### Releases
+
+Releases are cut from a signed tag by `make release RELEASE_VERSION=X.Y.Z`.
+The release notes come from `CHANGELOG.md`, and `make changelog` checks
+that it is well formed and matches the tags. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full ritual.
+
 ## Design docs
 
 - Spec: [docs/superpowers/specs/2026-05-28-mailpitter-design.md](docs/superpowers/specs/2026-05-28-mailpitter-design.md)
 - Plan: [docs/superpowers/plans/2026-05-28-mailpitter.md](docs/superpowers/plans/2026-05-28-mailpitter.md)
+- Going public: [docs/superpowers/specs/2026-10-27-go-public-design.md](docs/superpowers/specs/2026-10-27-go-public-design.md)
+  and [docs/superpowers/plans/2026-10-27-go-public.md](docs/superpowers/plans/2026-10-27-go-public.md)
