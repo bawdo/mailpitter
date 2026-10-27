@@ -7,6 +7,8 @@ LDFLAGS := -X github.com/bawdo/mailpitter/internal/version.Version=$(VERSION) \
            -X github.com/bawdo/mailpitter/internal/version.Tag=$(TAG) \
            -X github.com/bawdo/mailpitter/internal/version.Dirty=$(DIRTY)
 
+VULN_VERSION := v1.9.0
+
 .DEFAULT_GOAL := help
 
 help: ## List available targets and their descriptions
@@ -24,8 +26,11 @@ test: ## Run the unit tests
 lint: ## Run golangci-lint
 	golangci-lint run
 
-integration: ## Run the integration tests
-	go test -tags integration -v ./test/integration/...
+vuln: ## Run govulncheck over the module
+	go run golang.org/x/vuln/cmd/govulncheck@$(VULN_VERSION) ./...
+
+integration: ## Run the Docker-backed integration tests
+	go test -tags integration -count=1 -timeout 10m -v ./test/integration/...
 
 pre-ci: ## Run the pre-CI checks
 	./scripts/pre-ci-check.sh
@@ -33,4 +38,14 @@ pre-ci: ## Run the pre-CI checks
 pre-ci-fix: ## Run the pre-CI checks and auto-fix gofmt
 	./scripts/pre-ci-check.sh --fix gofmt
 
-.PHONY: help build install test integration lint pre-ci pre-ci-fix
+test-scripts: ## Run the shell script test suites
+	@for t in $$(ls scripts/*_test.sh | sort); do echo "==> $$t"; bash "$$t" || exit 1; done
+
+changelog: ## Check CHANGELOG.md is well formed and matches the tags
+	scripts/changelog.sh check
+
+release: ## Tag a release: make release RELEASE_VERSION=X.Y.Z (never pushes)
+	@test -n "$(RELEASE_VERSION)" || { echo "usage: make release RELEASE_VERSION=X.Y.Z"; exit 1; }
+	scripts/release.sh $(RELEASE_VERSION)
+
+.PHONY: help build install test test-scripts lint vuln integration changelog release pre-ci pre-ci-fix

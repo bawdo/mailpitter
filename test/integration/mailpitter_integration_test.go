@@ -4,6 +4,7 @@ package integration
 
 import (
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -15,18 +16,31 @@ func have(cmd string) bool {
 	return err == nil
 }
 
+// prerequisite skips the test unless MAILPITTER_INTEGRATION_STRICT is set,
+// in which case a missing prerequisite is a failure: CI installs them all,
+// so a skip there would hide a broken install step.
+func prerequisite(t *testing.T, ok bool, format string, args ...any) {
+	t.Helper()
+	if ok {
+		return
+	}
+	if os.Getenv("MAILPITTER_INTEGRATION_STRICT") != "" {
+		t.Fatalf("strict: "+format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
 func TestMailpitterRoundTrip(t *testing.T) {
-	if !have("docker") {
-		t.Skip("docker not on PATH")
+	prerequisite(t, have("docker"), "docker not on PATH")
+	if have("docker") {
+		err := exec.Command("docker", "info").Run()
+		prerequisite(t, err == nil, "docker daemon unreachable: %v", err)
 	}
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		t.Skipf("docker daemon unreachable: %v", err)
-	}
-	if !have("caddy_shack") {
-		t.Skip("caddy_shack not on PATH")
-	}
-	if !have("mailpitter") {
-		t.Skip("mailpitter not on PATH (run `make install` first)")
+	prerequisite(t, have("caddy_shack"), "caddy_shack not on PATH")
+	prerequisite(t, have("mailpitter"), "mailpitter not on PATH (run `make install` first)")
+	if have("caddy_shack") {
+		err := exec.Command("caddy_shack", "status").Run()
+		prerequisite(t, err == nil, "caddy_shack not installed or not running; run: caddy_shack install")
 	}
 
 	// Install

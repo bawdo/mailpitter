@@ -45,7 +45,7 @@ extra_hosts:
 ```
 
 If your project still defines its own `mailpit` service in
-`docker-compose.yml`, remove it — the shared mailpitter container owns
+`docker-compose.yml`, remove it: the shared mailpitter container owns
 ports 1025 and 8025 on `127.0.0.1`. On native Linux Docker Engine it also
 publishes 1025 on the docker0 gateway, which is where `host-gateway` points.
 With ufw active you need one allow rule; `mailpitter doctor` prints it. See
@@ -82,7 +82,7 @@ down:
 ```
 
 `mailpitter register` is idempotent (a no-op when the name + service haven't
-changed). `mailpitter deregister` is idempotent too — unknown names exit 0
+changed). `mailpitter deregister` is idempotent too: unknown names exit 0
 with a note on stderr.
 
 ## 5. Tear down
