@@ -175,10 +175,16 @@ jobs:
           make install
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # Strict mode fails on a missing prerequisite; the grep fails when the
+      # suite ran nothing at all, so neither path can leave this job green
+      # without the round trip having run.
       - name: Run integration tests
         env:
           MAILPITTER_INTEGRATION_STRICT: "1"
-        run: make integration
+        run: |
+          set -euo pipefail
+          make integration 2>&1 | tee "$RUNNER_TEMP/integration.log"
+          grep -q -- '--- PASS: TestMailpitterRoundTrip' "$RUNNER_TEMP/integration.log"
 
   # Builds through the Makefile and smoke-tests the binary on Linux, since the build is platform-independent Go and the Makefile owns the ldflags.
   build:
@@ -202,7 +208,7 @@ jobs:
       - name: Build mailpitter binary
         run: make build
 
-      - name: CLI smoke test (caddy_shack version)
+      - name: CLI smoke test (mailpitter version)
         run: |
           output=$(./bin/mailpitter version)
           echo "$output"
