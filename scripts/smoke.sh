@@ -44,6 +44,7 @@ FAILED_TESTS=()
 step() { echo; echo "${CYAN}=== $* ===${RESET}"; }
 ok()   { echo "  ${GREEN}PASS${RESET} $1"; pass=$((pass+1)); }
 no()   { echo "  ${RED}FAIL${RESET} $1"; [ -n "${2:-}" ] && echo "         $2"; fail=$((fail+1)); FAILED_TESTS+=("$1"); }
+# shellcheck disable=SC2329  # kept for ad hoc skips while editing the suite
 sk()   { echo "  ${YELLOW}SKIP${RESET} $1${2:+: $2}"; skip=$((skip+1)); }
 
 # Run a command, assert exit + (optional) grep pattern in combined output.
@@ -84,12 +85,24 @@ echo "log: $LOG"
 
 # ---------------------------------------------------------------------------
 step "Prerequisites"
-command -v docker     >/dev/null && ok "docker on PATH"     || { no "docker on PATH"; exit 1; }
-docker info >/dev/null 2>&1       && ok "docker daemon up"   || { no "docker daemon" "start Docker Desktop"; exit 1; }
-command -v caddy_shack >/dev/null && ok "caddy_shack on PATH" || { no "caddy_shack on PATH"; exit 1; }
-command -v mailpitter >/dev/null  && ok "mailpitter on PATH" || { no "mailpitter on PATH" "run: make install"; exit 1; }
-command -v curl >/dev/null        && ok "curl on PATH"       || { no "curl on PATH"; exit 1; }
-command -v jq >/dev/null          && ok "jq on PATH"         || { no "jq on PATH" "brew install jq"; exit 1; }
+# need CMD... -- LABEL [HINT]: passes when CMD succeeds, else fails and exits.
+need() {
+    local cmd=()
+    while [ "$1" != "--" ]; do cmd+=("$1"); shift; done
+    shift
+    if "${cmd[@]}" >/dev/null 2>&1; then
+        ok "$1"
+    else
+        no "$1" "${2:-}"
+        exit 1
+    fi
+}
+need command -v docker      -- "docker on PATH"
+need docker info            -- "docker daemon up" "start Docker Desktop"
+need command -v caddy_shack -- "caddy_shack on PATH"
+need command -v mailpitter  -- "mailpitter on PATH" "run: make install"
+need command -v curl        -- "curl on PATH"
+need command -v jq          -- "jq on PATH" "brew install jq"
 
 # ---------------------------------------------------------------------------
 step "Bring-up"
