@@ -1,15 +1,18 @@
 // Package version exposes build-time identity. Version, Commit, Tag, and
 // Dirty are overridden via -ldflags at build time; the Makefile sets all
 // four. When ldflags weren't applied (e.g. plain `go install ./`),
-// Resolve() falls back to runtime.debug.ReadBuildInfo() which Go's
-// toolchain populates automatically from the surrounding git repo.
+// Resolve() falls back to runtime.debug.ReadBuildInfo(): Go's toolchain
+// stamps the module version there for `go install module@version` (and a
+// pseudo-version for a plain `go build` inside a clone), and the commit and
+// dirty state when building inside the git repo.
 package version
 
 import "runtime/debug"
 
 var (
 	// Version is the human-facing version string (e.g. "v1.2.3",
-	// "v1.2.3-dirty", or a short SHA). Defaults to "dev".
+	// "v1.2.3-dirty", or a short SHA). Defaults to "dev", which Resolve
+	// replaces with the module version from build info when there is one.
 	Version = "dev"
 
 	// Commit is the full git SHA at build time. Empty falls back to

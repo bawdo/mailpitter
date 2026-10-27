@@ -103,14 +103,27 @@ ruleset() {
     fi
 }
 
+# The job names in ci.yml, sorted as sort -u orders them. The run's names
+# must match these exactly, so a renamed or missing job is caught here
+# rather than written into the ruleset as a check that never reports.
+EXPECTED_CONTEXTS="Build and smoke
+Integration tests
+Static checks
+Test (macos-latest)
+Test (ubuntu-latest)"
+
 rulesets() {
-    local run_id contexts n
+    local run_id contexts n unexpected
     run_id=$(gh run list --repo "$REPO" --workflow ci.yml --branch main --status success --limit 1 \
         --json databaseId --jq '.[0].databaseId // empty')
     [[ -n "$run_id" ]] || die "no successful CI run on main yet; merge and let CI pass first"
     contexts=$(gh api "$R/actions/runs/$run_id/jobs" --jq '.jobs[].name' | sort -u)
     n=$(grep -c . <<<"$contexts" || true)
     [[ "$n" -eq 5 ]] || die "expected 5 status check contexts, found $n"
+    if [[ "$contexts" != "$EXPECTED_CONTEXTS" ]]; then
+        unexpected=$(comm -23 <(echo "$contexts") <(echo "$EXPECTED_CONTEXTS") | paste -sd, - | sed 's/,/, /g')
+        die "unexpected status check contexts: $unexpected (expected $(paste -sd, - <<<"$EXPECTED_CONTEXTS" | sed 's/,/, /g'))"
+    fi
 
     ruleset main "$(jq -n --arg contexts "$contexts" '{
         name: "main",

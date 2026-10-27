@@ -18,7 +18,7 @@
 - **Going public safely.** `scripts/history-scan.sh` scans every ref's
   history for agent attribution, secrets, home paths and unknown emails.
   `scripts/repo-settings.sh` applies the repository settings in phases
-  (`pre-public`, `public`, `post-public`, `rulesets`, `show`).
+  (`pre-public`, `public`, `post-public`, `rulesets`, `harden`, `show`).
 
 Every script has a `scripts/*_test.sh` suite run by `make test-scripts`.
 
