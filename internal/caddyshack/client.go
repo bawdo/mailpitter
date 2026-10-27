@@ -43,7 +43,7 @@ var lookPath = exec.LookPath
 
 // Installed returns nil when the caddy_shack binary is found on $PATH,
 // or ErrNotInstalled otherwise. This is the right primitive for asking
-// "is caddy_shack itself installed" — distinct from asking caddy_shack
+// "is caddy_shack itself installed", distinct from asking caddy_shack
 // to introspect its own container, which is what Status does.
 func (c *Client) Installed() error {
 	if _, err := lookPath("caddy_shack"); err != nil {

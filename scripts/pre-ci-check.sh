@@ -221,7 +221,7 @@ check_coverage() {
         NO_TESTS_YET=true
         COVERAGE="0.0"
         record_result "Coverage Generation" "PASS" ""
-        echo -e "${YELLOW}⚠ No tests yet — coverage check skipped${NC}"
+        echo -e "${YELLOW}⚠ No tests yet: coverage check skipped${NC}"
         echo -e "  Coverage target gate suppressed for this run."
         return 0
     fi
@@ -342,7 +342,7 @@ check_cli_smoke() {
         return 1
     fi
 
-    # First line is "mailpitter <version>" — assert that shape rather than
+    # First line is "mailpitter <version>": assert that shape rather than
     # a specific version string so the check survives any tag.
     if head -1 "$TMPBIN/smoke.log" | grep -q '^mailpitter '; then
         record_result "CLI Smoke" "PASS" ""
@@ -427,7 +427,7 @@ generate_report() {
     fi
 
     echo ""
-    echo "Detailed logs saved in: coverage/pre-ci-*.txt  (checks 1–9)"
+    echo "Detailed logs saved in: coverage/pre-ci-*.txt  (checks 1 to 9)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 

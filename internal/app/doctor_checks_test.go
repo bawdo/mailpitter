@@ -175,7 +175,7 @@ func TestCheckCaddyRouteSkipWhenNotInstalled(t *testing.T) {
 
 func TestCheckInstallModeMatchSkip(t *testing.T) {
 	a, _, _ := newTestApp(t)
-	// No install recorded yet — state file absent.
+	// No install recorded yet: state file absent.
 	r := checkInstallModeMatch(a)
 	if r.Status != SeveritySkip {
 		t.Errorf("status = %v, want SKIP", r.Status)

@@ -6,7 +6,7 @@
 # Uses the `mailpitter` binary already on $PATH. Run `make install` first
 # if you've changed source.
 #
-# Safe to run against an existing install — preserves any pre-existing
+# Safe to run against an existing install: preserves any pre-existing
 # consumers and only cleans up its own smoke- and stress- entries.
 #
 # Usage:

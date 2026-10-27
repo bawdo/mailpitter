@@ -94,7 +94,7 @@ sudo ufw allow from 172.16.0.0/12 to 172.17.0.1 port 1025 proto tcp comment 'all
 (using your engine's gateway in place of `172.17.0.1`). `172.16.0.0/12`
 covers Docker's default bridge and user-defined network pools. If your
 networks come from another range (e.g. Docker allocating from `192.168.0.0/16`
-once 172.16–31 is exhausted), add a matching rule for that source.
+once 172.16 to 172.31 is exhausted), add a matching rule for that source.
 
 ufw detection reads `/etc/ufw/ufw.conf` and `/etc/ufw/user.rules`, which are
 world-readable, so no root is needed. To check from a container on a
