@@ -190,6 +190,18 @@ if [ "$(count "$dir" POST)" -ne 0 ] || [ "$(count "$dir" "-X PUT")" -ne 0 ]; the
 fi
 echo "ok $name"
 
+name=rulesets_rejects_renamed_context
+dir=$(fake "$name")
+jq '.jobs[3].name = "Integration"' <<<"$FIVE" > "$dir/jobs.json"
+run "$dir" rulesets
+[ "$CODE" -eq 1 ] || fail "$name" "expected exit 1"
+[ "$ERR" = "repo-settings: unexpected status check contexts: Integration (expected Build and smoke, Integration tests, Static checks, Test (macos-latest), Test (ubuntu-latest))" ] \
+    || fail "$name" "wrong refusal: $ERR"
+if [ "$(count "$dir" POST)" -ne 0 ] || [ "$(count "$dir" "-X PUT")" -ne 0 ]; then
+    fail "$name" "wrote a ruleset"
+fi
+echo "ok $name"
+
 name=rulesets_creates_when_absent
 dir=$(fake "$name")
 run "$dir" rulesets

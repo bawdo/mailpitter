@@ -11,7 +11,10 @@ name: Release
 #
 # A published release is never changed. If a run fails part way, fix the
 # cause and run this workflow by hand with the existing tag: a leftover draft
-# is replaced and the release published.
+# is replaced and the release published. Re-run it from the command line,
+#   gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z
+# not from the Actions page: a dispatch there defaults to main, so the
+# reused CI job would test main's head while publish builds the tag.
 
 permissions:
   contents: read
