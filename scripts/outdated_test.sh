@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
 # Tests for scripts/outdated.sh. Each case builds a fixture repo (ci.yml,
-# Makefile, go.mod) under a temp directory and runs the script with stub go
-# and gh commands on a minimal PATH, so nothing touches the network. The stubs
-# answer from JSON files in the fixture's .stub directory. Output is captured,
-# so the script sees no terminal and only reports. Prints "ok <name>" per case
-# and exits non-zero on the first failure.
+# Makefile, go.mod) under a temp directory and runs the script with stub go,
+# gh and make commands on a minimal PATH, so nothing touches the network. The
+# stubs answer from files in the fixture's .stub directory and log their
+# calls there. Output is captured, so the script sees no terminal and only
+# reports, unless a case sets OUTDATED_INTERACTIVE=1 and feeds answers through
+# ANSWERS. Prints "ok <name>" per case and exits non-zero on the first failure.
 
 set -euo pipefail
 
@@ -16,9 +17,12 @@ trap 'rm -rf "$ROOT"' EXIT
 OUT=""
 ERR=""
 CODE=0
+ANSWERS=""
 
 OLD='2020-01-01T00:00:00Z'
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+OLD_SHA=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+NEW_SHA=1111111111111111111111111111111111111111111111111111111111111111
 
 fail() {
     echo "FAIL $1: $2" >&2
@@ -37,7 +41,9 @@ for bin in bash jq awk grep cut mktemp rm cat head tr wc git sed date; do
     ln -s "$path" "$TOOLS/$bin"
 done
 
-# Stub go: answers the four go list calls the script makes.
+# Stub go and make. go answers the go list calls from .stub files; get, mod
+# tidy, build and test are logged to go.log and succeed. make is logged to
+# make.log and fails when .stub/make-fail exists.
 STUB_GO="$ROOT/stub-go"
 mkdir -p "$STUB_GO"
 cat > "$STUB_GO/go" << 'EOF'
@@ -49,24 +55,28 @@ case "$*" in
     "list -m -json golang.org/x/vuln@latest") cat "$STUB_DIR/vuln.json" ;;
     "list -m -json github.com/golangci/golangci-lint/v2@latest") cat "$STUB_DIR/lint.json" ;;
     "list -m -f {{.Version}} go@latest") cat "$STUB_DIR/go.txt" ;;
+    get\ * | "mod tidy" | "build ./..." | "test ./...") echo "$*" >> "$STUB_DIR/go.log" ;;
     *) echo "stub go: unexpected call: $*" >&2; exit 2 ;;
 esac
 EOF
+cat > "$STUB_GO/make" << 'EOF'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/make.log"
+[ ! -f "$STUB_DIR/make-fail" ] || { echo "govulncheck: found 1 vulnerability" >&2; exit 3; }
+EOF
 
-# Stub gh: "gh api repos/OWNER/REPO/releases/latest --jq FILTER" applies the
-# filter to .stub/gh-OWNER_REPO.json, and fails like a logged-out gh without it.
+# Stub gh: "gh api PATH --jq FILTER" applies the filter to .stub/gh-PATH.json
+# (slashes as underscores), and fails like a logged-out gh without it.
 STUB_GH="$ROOT/stub-gh"
 mkdir -p "$STUB_GH"
 cat > "$STUB_GH/gh" << 'EOF'
 #!/usr/bin/env bash
 [ "$1" = api ] && [ "$3" = --jq ] || { echo "stub gh: unexpected call: $*" >&2; exit 2; }
-repo=${2#repos/}
-repo=${repo%/releases/latest}
-file="$STUB_DIR/gh-${repo//\//_}.json"
+file="$STUB_DIR/gh-${2//\//_}.json"
 [ -f "$file" ] || { echo "HTTP 401: Bad credentials" >&2; exit 1; }
 jq -r "$4" "$file"
 EOF
-chmod +x "$STUB_GO/go" "$STUB_GH/gh"
+chmod +x "$STUB_GO/go" "$STUB_GO/make" "$STUB_GH/gh"
 
 # module PATH VERSION [UPDATE TIME] [EXTRA_JSON]: one go list -m -json record.
 module() {
@@ -85,15 +95,24 @@ gh_release() {
     printf '{"tag_name": "%s", "published_at": "%s"}\n' "$1" "$2"
 }
 
+# sc_tag_release DIR TAG SHA: the release-by-tag response, with the asset CI
+# downloads and a decoy whose digest must not be picked.
+sc_tag_release() {
+    printf '{"assets": [{"name": "shellcheck-%s.linux.x86_64.tar.gz", "digest": "sha256:%s"},
+        {"name": "shellcheck-%s.linux.x86_64.tar.xz", "digest": "sha256:%s"}]}\n' \
+        "$2" "$OLD_SHA" "$2" "$3" > "$1/.stub/gh-repos_koalaman_shellcheck_releases_tags_$2.json"
+}
+
 # fixture NAME: creates a repo where every pin is current and prints its path.
 fixture() {
     local dir="$ROOT/$1"
     mkdir -p "$dir/.github/workflows" "$dir/.stub"
-    cat > "$dir/.github/workflows/ci.yml" << 'EOF'
+    cat > "$dir/.github/workflows/ci.yml" << EOF
 env:
   VULN_VERSION: v1.9.0
   CADDY_SHACK_VERSION: 0.1.0
   SHELLCHECK_VERSION: v0.11.0
+  SHELLCHECK_SHA256: $OLD_SHA
 jobs:
   static:
     steps:
@@ -105,9 +124,9 @@ jobs:
         with:
           # Bump the version: input with Go.
           version: v2.15.0
-      - run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.VULN_VERSION }} ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@\${{ env.VULN_VERSION }} ./...
 EOF
-    printf 'VULN_VERSION := v1.9.0\n' > "$dir/Makefile"
+    printf 'VULN_VERSION := v1.9.0\n\nvuln:\n\tgovulncheck\n' > "$dir/Makefile"
     printf 'module example.com/x\n\ngo 1.25.0\n' > "$dir/go.mod"
     {
         printf '{"Path": "example.com/x", "Main": true}\n'
@@ -116,13 +135,21 @@ EOF
     release v2.15.0 "$OLD" > "$dir/.stub/lint.json"
     release v1.9.0 "$OLD" > "$dir/.stub/vuln.json"
     printf '1.26.3\n' > "$dir/.stub/go.txt"
-    gh_release v0.11.0 "$OLD" > "$dir/.stub/gh-koalaman_shellcheck.json"
-    gh_release v0.1.0 "$OLD" > "$dir/.stub/gh-bawdo_caddy_shack.json"
+    gh_release v0.11.0 "$OLD" > "$dir/.stub/gh-repos_koalaman_shellcheck_releases_latest.json"
+    gh_release v0.1.0 "$OLD" > "$dir/.stub/gh-repos_bawdo_caddy_shack_releases_latest.json"
     echo "$dir"
 }
 
-# run DIR [VAR=VALUE...]: runs the script from DIR, capturing OUT, ERR and
-# CODE. The stub gh is on the PATH unless NO_GH=1 is passed.
+# git_repo DIR: commits the fixture's files so the upgrade's diff has a base.
+git_repo() {
+    git -C "$1" init -q
+    git -C "$1" add go.mod Makefile .github
+    git -C "$1" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false \
+        commit -q -m fixture
+}
+
+# run DIR [VAR=VALUE...]: runs the script from DIR with ANSWERS on stdin,
+# capturing OUT, ERR and CODE. The stub gh is on the PATH unless NO_GH=1.
 run() {
     local dir="$1" path="$STUB_GO:$STUB_GH:$TOOLS"
     shift
@@ -131,10 +158,11 @@ run() {
         [ "$kv" != NO_GH=1 ] || path="$STUB_GO:$TOOLS"
     done
     CODE=0
-    OUT=$(cd "$dir" && env -i HOME="$HOME" PATH="$path" STUB_DIR="$dir/.stub" \
-        TMPDIR="$ROOT" GIT_CEILING_DIRECTORIES="$dir" "$@" \
-        "$BASH" "$SCRIPT" < /dev/null 2> "$errfile") || CODE=$?
+    OUT=$(cd "$dir" && printf '%s' "$ANSWERS" | env -i HOME="$HOME" PATH="$path" \
+        STUB_DIR="$dir/.stub" TMPDIR="$ROOT" GIT_CEILING_DIRECTORIES="$ROOT" "$@" \
+        "$BASH" "$SCRIPT" 2> "$errfile") || CODE=$?
     ERR=$(cat "$errfile")
+    ANSWERS=""
 }
 
 expect_code() {
@@ -161,6 +189,20 @@ expect_err() {
     esac
 }
 
+# expect_line NAME FILE TEXT: FILE has a line that is exactly TEXT.
+expect_line() {
+    grep -qxF -- "$3" "$2" || fail "$1" "$2 has no line: $3"
+}
+
+# expect_logged NAME FILE TEXT: the stub log FILE has the line TEXT.
+expect_logged() {
+    if [ ! -f "$2" ] || ! grep -qxF -- "$3" "$2"; then
+        fail "$1" "$(basename "$2") did not log: $3"
+    fi
+}
+
+# ---------------------------------------------------------------- Report
+
 test_everything_current_reports_up_to_date() {
     local d
     d=$(fixture current)
@@ -184,6 +226,15 @@ test_outdated_module_listed_and_no_prompt_without_terminal() {
     expect_out "${FUNCNAME[0]}" "github.com/spf13/cobra"
     expect_out "${FUNCNAME[0]}" "v1.11.0"
     expect_no_out "${FUNCNAME[0]}" "too fresh"
+    expect_out "${FUNCNAME[0]}" "Not on a terminal, so not offering upgrades."
+}
+
+test_outdated_tool_alone_still_offers_upgrade() {
+    local d
+    d=$(fixture toolonly)
+    release v1.10.0 "$OLD" > "$d/.stub/vuln.json"
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
     expect_out "${FUNCNAME[0]}" "Not on a terminal, so not offering upgrades."
 }
 
@@ -281,7 +332,8 @@ test_golangci_lint_update_reported() {
     run "$d"
     expect_code "${FUNCNAME[0]}" 0
     expect_out "${FUNCNAME[0]}" "golangci-lint  v2.15.0    -> v2.16.0"
-    expect_out "${FUNCNAME[0]}" "pinned in .github/workflows/ci.yml:15"
+    expect_out "${FUNCNAME[0]}" "pinned in .github/workflows/ci.yml:16"
+    expect_out "${FUNCNAME[0]}" "at least as new as CI's go-version"
 }
 
 test_newer_go_line_reported() {
@@ -297,12 +349,12 @@ test_newer_go_line_reported() {
 test_release_pin_updates_reported() {
     local d
     d=$(fixture ghnew)
-    gh_release v0.12.0 "$OLD" > "$d/.stub/gh-koalaman_shellcheck.json"
-    gh_release v0.2.0 "$NOW" > "$d/.stub/gh-bawdo_caddy_shack.json"
+    gh_release v0.12.0 "$OLD" > "$d/.stub/gh-repos_koalaman_shellcheck_releases_latest.json"
+    gh_release v0.2.0 "$NOW" > "$d/.stub/gh-repos_bawdo_caddy_shack_releases_latest.json"
     run "$d"
     expect_code "${FUNCNAME[0]}" 0
     expect_out "${FUNCNAME[0]}" "shellcheck     v0.11.0    -> v0.12.0"
-    expect_out "${FUNCNAME[0]}" "Bump SHELLCHECK_SHA256 with it"
+    expect_out "${FUNCNAME[0]}" "Upgrading also sets SHELLCHECK_SHA256"
     expect_out "${FUNCNAME[0]}" "caddy_shack    0.1.0      -> v0.2.0"
     expect_out "${FUNCNAME[0]}" "too fresh"
     expect_out "${FUNCNAME[0]}" "pinned in .github/workflows/ci.yml:3"
@@ -320,7 +372,7 @@ test_gh_missing_skips_release_pins() {
 test_gh_logged_out_reports_lookup_failure() {
     local d
     d=$(fixture ghfail)
-    rm "$d/.stub/gh-koalaman_shellcheck.json" "$d/.stub/gh-bawdo_caddy_shack.json"
+    rm "$d"/.stub/gh-*.json
     run "$d"
     expect_code "${FUNCNAME[0]}" 0
     expect_out "${FUNCNAME[0]}" "gh lookups failed (is gh logged in? try: gh auth status)"
@@ -334,6 +386,124 @@ test_missing_ci_file_skips_tool_pins() {
     run "$d"
     expect_code "${FUNCNAME[0]}" 0
     expect_out "${FUNCNAME[0]}" ".github/workflows/ci.yml not found, skipping."
+}
+
+# ---------------------------------------------------------------- Upgrade
+
+test_upgrade_all_edits_tool_pins_past_cooldown() {
+    local d ci lines
+    d=$(fixture upall)
+    release v2.16.0 "$NOW" > "$d/.stub/lint.json"
+    release v1.10.0 "$OLD" > "$d/.stub/vuln.json"
+    gh_release v0.12.0 "$OLD" > "$d/.stub/gh-repos_koalaman_shellcheck_releases_latest.json"
+    sc_tag_release "$d" v0.12.0 "$NEW_SHA"
+    gh_release v0.2.0 "$OLD" > "$d/.stub/gh-repos_bawdo_caddy_shack_releases_latest.json"
+    git_repo "$d"
+    ci="$d/.github/workflows/ci.yml"
+    lines=$(wc -l < "$ci")
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_line "${FUNCNAME[0]}" "$ci" "  VULN_VERSION: v1.10.0"
+    expect_line "${FUNCNAME[0]}" "$d/Makefile" "VULN_VERSION := v1.10.0"
+    expect_line "${FUNCNAME[0]}" "$ci" "  SHELLCHECK_VERSION: v0.12.0"
+    expect_line "${FUNCNAME[0]}" "$ci" "  SHELLCHECK_SHA256: $NEW_SHA"
+    expect_line "${FUNCNAME[0]}" "$ci" "  CADDY_SHACK_VERSION: 0.2.0"
+    expect_line "${FUNCNAME[0]}" "$ci" "          version: v2.15.0"
+    expect_line "${FUNCNAME[0]}" "$ci" "          # Bump the version: input with Go."
+    [ "$(wc -l < "$ci")" -eq "$lines" ] || fail "${FUNCNAME[0]}" "ci.yml line count changed"
+    expect_logged "${FUNCNAME[0]}" "$d/.stub/make.log" "vuln"
+    [ ! -f "$d/.stub/go.log" ] || fail "${FUNCNAME[0]}" "go get ran with no module chosen"
+    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s) and 3 tool pin(s)."
+    expect_out "${FUNCNAME[0]}" "make vuln passes at the new govulncheck."
+    expect_out "${FUNCNAME[0]}" "+  SHELLCHECK_VERSION: v0.12.0"
+}
+
+test_upgrade_pick_edits_only_chosen_pins() {
+    local d ci
+    d=$(fixture uppick)
+    release v2.16.0 "$NOW" > "$d/.stub/lint.json"
+    gh_release v0.2.0 "$OLD" > "$d/.stub/gh-repos_bawdo_caddy_shack_releases_latest.json"
+    git_repo "$d"
+    ci="$d/.github/workflows/ci.yml"
+    ANSWERS=$'p\ny\nn\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_line "${FUNCNAME[0]}" "$ci" "          version: v2.16.0"
+    expect_line "${FUNCNAME[0]}" "$ci" "  CADDY_SHACK_VERSION: 0.1.0"
+    [ ! -f "$d/.stub/make.log" ] || fail "${FUNCNAME[0]}" "make vuln ran without a govulncheck bump"
+    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s) and 1 tool pin(s)."
+}
+
+test_upgrade_modules_and_tools_together() {
+    local d
+    d=$(fixture upboth)
+    module github.com/spf13/cobra v1.10.2 v1.11.0 "$OLD" > "$d/.stub/all.json"
+    release v1.10.0 "$OLD" > "$d/.stub/vuln.json"
+    git_repo "$d"
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_logged "${FUNCNAME[0]}" "$d/.stub/go.log" "get github.com/spf13/cobra@v1.11.0"
+    expect_logged "${FUNCNAME[0]}" "$d/.stub/go.log" "mod tidy"
+    expect_logged "${FUNCNAME[0]}" "$d/.stub/go.log" "test ./..."
+    expect_logged "${FUNCNAME[0]}" "$d/.stub/make.log" "vuln"
+    expect_out "${FUNCNAME[0]}" "Upgraded 1 module(s) and 1 tool pin(s). Build and tests pass."
+}
+
+test_upgrade_shellcheck_without_digest_refuses() {
+    local d ci
+    d=$(fixture upnodigest)
+    gh_release v0.12.0 "$OLD" > "$d/.stub/gh-repos_koalaman_shellcheck_releases_latest.json"
+    git_repo "$d"
+    ci="$d/.github/workflows/ci.yml"
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 1
+    expect_out "${FUNCNAME[0]}" "Failed: upgrade_tool shellcheck v0.11.0 v0.12.0"
+    expect_err "${FUNCNAME[0]}" "no sha256 digest for shellcheck-v0.12.0.linux.x86_64.tar.xz"
+    expect_line "${FUNCNAME[0]}" "$ci" "  SHELLCHECK_VERSION: v0.11.0"
+    expect_line "${FUNCNAME[0]}" "$ci" "  SHELLCHECK_SHA256: $OLD_SHA"
+}
+
+test_upgrade_make_vuln_failure_says_how_to_back_out() {
+    local d
+    d=$(fixture upvulnfail)
+    release v1.10.0 "$OLD" > "$d/.stub/vuln.json"
+    touch "$d/.stub/make-fail"
+    git_repo "$d"
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 1
+    expect_out "${FUNCNAME[0]}" "Failed: make vuln"
+    expect_out "${FUNCNAME[0]}" "git checkout -- go.mod go.sum .github/workflows/ci.yml Makefile"
+}
+
+test_upgrade_refused_when_ci_file_dirty() {
+    local d ci
+    d=$(fixture updirty)
+    release v1.10.0 "$OLD" > "$d/.stub/vuln.json"
+    git_repo "$d"
+    ci="$d/.github/workflows/ci.yml"
+    printf '# local edit\n' >> "$ci"
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "has uncommitted changes"
+    expect_line "${FUNCNAME[0]}" "$ci" "  VULN_VERSION: v1.9.0"
+}
+
+test_upgrade_none_changes_nothing() {
+    local d ci
+    d=$(fixture upnone)
+    release v1.10.0 "$OLD" > "$d/.stub/vuln.json"
+    git_repo "$d"
+    ci="$d/.github/workflows/ci.yml"
+    ANSWERS=$'\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "Nothing upgraded."
+    expect_line "${FUNCNAME[0]}" "$ci" "  VULN_VERSION: v1.9.0"
 }
 
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do

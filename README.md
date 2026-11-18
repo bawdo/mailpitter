@@ -219,9 +219,14 @@ Dependabot cannot bump them: golangci-lint, govulncheck (`VULN_VERSION`, which
 the `Makefile` repeats and must match), the Go release line, and, via `gh`,
 shellcheck and caddy_shack. Releases younger than `COOLDOWN_DAYS` (default 7,
 as in `dependabot.yml`) are marked too fresh and left out of "all". On a
-terminal it then offers to upgrade all, pick, or none; an upgrade runs
-`go get`, `go mod tidy`, `go build` and `go test` and shows the `go.mod`
-diff, without committing. Tool pins are report only.
+terminal it then offers to upgrade all, pick, or none, over modules and tool
+pins together. Tool pins are edited in place: govulncheck in both
+`ci.yml` and the `Makefile`, and shellcheck along with its
+`SHELLCHECK_SHA256`, taken from the release asset's digest on GitHub. Module
+upgrades run `go get`, `go mod tidy`, `go build` and `go test`, and a
+govulncheck bump runs `make vuln`; CI proves the other pins on the next push.
+It shows the diff and commits nothing. The Go release line is report only,
+as it spans both workflows and moves with golangci-lint and `go.mod`.
 
 ### Releases
 

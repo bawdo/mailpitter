@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `make outdated` reports direct Go modules with newer releases, deprecated
   or retracted ones, and the golangci-lint, govulncheck, Go, shellcheck and
-  caddy_shack versions pinned in CI, then offers to upgrade the modules.
+  caddy_shack versions pinned in CI, then offers to upgrade the modules
+  and every pin but the Go line, filling in the shellcheck SHA256 from
+  the release asset's digest.
 
 ## [0.1.0] - 2026-10-27
 
