@@ -29,6 +29,9 @@ lint: ## Run golangci-lint
 vuln: ## Run govulncheck over the module
 	go run golang.org/x/vuln/cmd/govulncheck@$(VULN_VERSION) ./...
 
+outdated: ## Report outdated modules and CI tool pins, offer upgrades
+	./scripts/outdated.sh
+
 integration: ## Run the Docker-backed integration tests
 	go test -tags integration -count=1 -timeout 10m -v ./test/integration/...
 
@@ -48,4 +51,4 @@ release: ## Tag a release: make release RELEASE_VERSION=X.Y.Z (never pushes)
 	@test -n "$(RELEASE_VERSION)" || { echo "usage: make release RELEASE_VERSION=X.Y.Z"; exit 1; }
 	scripts/release.sh $(RELEASE_VERSION)
 
-.PHONY: help build install test test-scripts lint vuln integration changelog release pre-ci pre-ci-fix
+.PHONY: help build install test test-scripts lint vuln outdated integration changelog release pre-ci pre-ci-fix

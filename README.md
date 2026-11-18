@@ -205,11 +205,23 @@ make integration
 make pre-ci       # local pre-CI gauntlet
 make pre-ci-fix   # auto-fix gofmt along the way
 make install      # local build into $GOBIN
+make outdated     # outdated modules and CI tool pins, with an upgrade prompt
 ```
 
 The pre-CI script skips the vulnerability scan and the Docker-backed
 integration tests; `make vuln` and `make integration` run those, matching
 the CI jobs.
+
+`make outdated` (`scripts/outdated.sh`) lists direct Go modules with a newer
+release (and any deprecated or retracted ones). It also reports the versions
+pinned in `.github/workflows/ci.yml` against their latest releases, since
+Dependabot cannot bump them: golangci-lint, govulncheck (`VULN_VERSION`, which
+the `Makefile` repeats and must match), the Go release line, and, via `gh`,
+shellcheck and caddy_shack. Releases younger than `COOLDOWN_DAYS` (default 7,
+as in `dependabot.yml`) are marked too fresh and left out of "all". On a
+terminal it then offers to upgrade all, pick, or none; an upgrade runs
+`go get`, `go mod tidy`, `go build` and `go test` and shows the `go.mod`
+diff, without committing. Tool pins are report only.
 
 ### Releases
 
