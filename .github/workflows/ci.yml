@@ -21,7 +21,7 @@ concurrency:
 env:
   VULN_VERSION: v1.9.0
   # The caddy_shack release the integration job installs. Bump it here.
-  CADDY_SHACK_VERSION: 0.1.0
+  CADDY_SHACK_VERSION: 0.2.3
   # The runner image ships an older shellcheck that disagrees with current
   # releases, so the lint step installs this version and checks its digest.
   SHELLCHECK_VERSION: v0.11.0
