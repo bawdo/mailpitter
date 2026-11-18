@@ -205,7 +205,7 @@ make integration
 make pre-ci       # local pre-CI gauntlet
 make pre-ci-fix   # auto-fix gofmt along the way
 make install      # local build into $GOBIN
-make outdated     # outdated modules and CI tool pins, with an upgrade prompt
+make outdated     # outdated modules, CI tool pins and actions, with an upgrade prompt
 ```
 
 The pre-CI script skips the vulnerability scan and the Docker-backed
@@ -217,16 +217,21 @@ release (and any deprecated or retracted ones). It also reports the versions
 pinned in `.github/workflows/ci.yml` against their latest releases, since
 Dependabot cannot bump them: golangci-lint, govulncheck (`VULN_VERSION`, which
 the `Makefile` repeats and must match), the Go release line, and, via `gh`,
-shellcheck and caddy_shack. Releases younger than `COOLDOWN_DAYS` (default 7,
-as in `dependabot.yml`) are marked too fresh and left out of "all". On a
-terminal it then offers to upgrade all, pick, or none, over modules and tool
-pins together. Tool pins are edited in place: govulncheck in both
+shellcheck and caddy_shack. It also lists every SHA-pinned GitHub Action
+(`uses: owner/repo@<sha> # vX.Y.Z`) across `.github/workflows/` against the
+repository's highest stable `vX.Y.Z` release, which Dependabot proposes as
+PRs too. Releases younger than `COOLDOWN_DAYS` (default 7, as in
+`dependabot.yml`) are marked too fresh and left out of "all". On a terminal
+it then offers to upgrade all, pick, or none, over modules, tool pins and
+actions together. Tool pins are edited in place: govulncheck in both
 `ci.yml` and the `Makefile`, and shellcheck along with its
-`SHELLCHECK_SHA256`, taken from the release asset's digest on GitHub. Module
-upgrades run `go get`, `go mod tidy`, `go build` and `go test`, and a
-govulncheck bump runs `make vuln`; CI proves the other pins on the next push.
-It shows the diff and commits nothing. The Go release line is report only,
-as it spans both workflows and moves with golangci-lint and `go.mod`.
+`SHELLCHECK_SHA256`, taken from the release asset's digest on GitHub. An
+action upgrade resolves the new tag to its commit and rewrites the SHA and
+version comment on every line using it. Module upgrades run `go get`,
+`go mod tidy`, `go build` and `go test`, and a govulncheck bump runs
+`make vuln`; CI proves the other pins and actions on the next push. It shows
+the diff and commits nothing. The Go release line is report only, as it
+spans both workflows and moves with golangci-lint and `go.mod`.
 
 ### Releases
 

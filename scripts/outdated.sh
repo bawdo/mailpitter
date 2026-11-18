@@ -15,6 +15,11 @@
 #                Dependabot tracks none of these. All but the Go line can be
 #                upgraded here; the Go line is report only, as it spans both
 #                workflows and moves with golangci-lint and go.mod.
+#   Actions      Every SHA-pinned "uses: owner/repo@<sha> # vX.Y.Z" in the
+#                workflows, against the repo's highest stable vX.Y.Z release
+#                (via gh). An upgrade resolves the new tag to its commit and
+#                rewrites the SHA and comment on every line using that pin.
+#                Dependabot proposes the same bumps as PRs.
 #
 # Releases younger than COOLDOWN_DAYS (default 7, matching dependabot.yml)
 # are flagged "too fresh" and left out of "all", but can still be picked.
@@ -35,6 +40,7 @@ set -euo pipefail
 COOLDOWN_DAYS="${COOLDOWN_DAYS:-7}"
 CI_FILE="${CI_FILE:-.github/workflows/ci.yml}"
 MAKE_FILE="Makefile"
+WORKFLOW_DIR="${WORKFLOW_DIR:-.github/workflows}"
 
 if ! [[ "$COOLDOWN_DAYS" =~ ^[0-9]+$ ]]; then
     echo "outdated: COOLDOWN_DAYS must be a whole number of days" >&2
@@ -249,6 +255,99 @@ else
     fi
 fi
 
+# ---------------------------------------------------------------- Actions
+
+# jq filter: the highest stable vX.Y.Z release in a releases listing, as
+# "<tag> <age-days>". GitHub's own "latest" will not do: codeql-action marks
+# its CodeQL bundle releases latest, and keeps v3 and v4 lines side by side.
+SEMVER_LATEST='[.[] | select((.draft | not) and (.prerelease | not)
+        and (.tag_name | test("^v?[0-9]+\\.[0-9]+\\.[0-9]+$")))]
+    | sort_by(.tag_name | ltrimstr("v") | split(".") | map(tonumber))
+    | last // empty
+    | [.tag_name, (.published_at | '"$AGE"')] | @tsv'
+
+# Prints "<tag> <age-days>" for a repo's highest stable release, or nothing.
+# Each repo is asked once per run, as several actions can share one.
+action_latest_of() {
+    local cache="$tmp/action-latest-${1//\//_}"
+    if [ ! -f "$cache" ]; then
+        gh api "repos/$1/releases?per_page=50" --jq "$SEMVER_LATEST" > "$cache" 2> /dev/null || : > "$cache"
+    fi
+    cat "$cache"
+}
+
+# Every SHA-pinned "uses: owner/repo[/path]@<sha> # <version>" line in the
+# workflows, as: file, line, action, sha, version ("-" without a comment, as
+# read collapses empty tab-separated fields).
+# Actions pinned to a tag or branch, and local ones, are not SHA pins and
+# are left alone.
+: > "$tmp/uses.tsv"
+for f in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
+    [ -f "$f" ] || continue
+    awk -v file="$f" '
+        {
+            for (i = 1; i < NF; i++) if ($i == "uses:") break
+            if (i >= NF) next
+            n = split($(i + 1), ref, "@")
+            if (n != 2 || length(ref[2]) != 40 || ref[2] !~ /^[0-9a-f]+$/) next
+            ver = ($(i + 2) == "#" && $(i + 3) != "") ? $(i + 3) : "-"
+            printf "%s\t%d\t%s\t%s\t%s\n", file, NR, ref[1], ref[2], ver
+        }' "$f" >> "$tmp/uses.tsv"
+done
+
+# One row per distinct pin: action, repo, sha, version, and every place it
+# is used as space-separated file:line entries.
+awk -F'\t' '
+    {
+        key = $3 "\t" $4 "\t" $5
+        if (!(key in locs)) { order[++n] = key; split($3, p, "/"); repo[key] = p[1] "/" p[2] }
+        locs[key] = (key in locs ? locs[key] " " : "") $1 ":" $2
+    }
+    END {
+        for (i = 1; i <= n; i++) {
+            split(order[i], k, "\t")
+            printf "%s\t%s\t%s\t%s\t%s\n", k[1], repo[order[i]], k[2], k[3], locs[order[i]]
+        }
+    }' "$tmp/uses.tsv" > "$tmp/actions.tsv"
+
+# Prints "file:l1,l2; file:l3" for a space-separated list of file:line entries.
+where_label() {
+    tr ' ' '\n' <<< "$1" | awk -F: '
+        { if (!($1 in lines)) order[++n] = $1; lines[$1] = ($1 in lines ? lines[$1] "," : "") $2 }
+        END { for (i = 1; i <= n; i++) printf "%s%s:%s", (i > 1 ? "; " : ""), order[i], lines[order[i]] }'
+}
+
+header "GitHub Actions"
+if [ ! -s "$tmp/actions.tsv" ]; then
+    echo "  No SHA-pinned actions found in $WORKFLOW_DIR."
+elif ! command -v gh > /dev/null; then
+    echo "  ${YELLOW}gh is not installed, skipping actions.${NC}"
+else
+    while IFS=$'\t' read -r action repo sha ver locs; do
+        IFS=$'\t' read -r latest days <<< "$(action_latest_of "$repo")" || true
+        if [ "$ver" = - ]; then
+            printf '  %-36s %-10s %sno version comment after the SHA, cannot compare%s\n' \
+                "$action" "${sha:0:7}" "$YELLOW" "$NC"
+        elif [ -z "${latest:-}" ]; then
+            printf '  %-36s %-10s %slatest version lookup failed%s\n' "$action" "$ver" "$YELLOW" "$NC"
+        elif [ "${ver#v}" = "${latest#v}" ]; then
+            printf '  %-36s %-10s %sup to date%s\n' "$action" "$ver" "$GREEN" "$NC"
+        else
+            printf '  %-36s %-10s -> %s%-10s%s %s\n' "$action" "$ver" \
+                "$GREEN" "$latest" "$NC" "$(age_label "$days")"
+            printf '  %-36s %spinned in %s%s\n' "" "$CYAN" "$(where_label "$locs")" "$NC"
+            if [ "$(cut -d. -f1 <<< "${ver#v}")" != "$(cut -d. -f1 <<< "${latest#v}")" ]; then
+                printf '  %-36s %smajor version change; read the release notes first.%s\n' "" "$DIM" "$NC"
+            fi
+            printf 'action\t%s\t%s\t%s\t%s\n' "$action" "$ver" "$latest" "$days" >> "$tmp/offers.tsv"
+        fi
+    done < "$tmp/actions.tsv"
+    if grep -q '^action' "$tmp/offers.tsv"; then
+        printf '  %sDependabot proposes these too; if it already has a PR open, merging that is the same change.%s\n' \
+            "$DIM" "$NC"
+    fi
+fi
+
 # ---------------------------------------------------------------- Upgrade
 
 echo
@@ -268,6 +367,9 @@ fi
 
 WATCHED=(go.mod go.sum)
 [ ! -f "$CI_FILE" ] || WATCHED+=("$CI_FILE")
+while IFS= read -r f; do
+    [ "$f" = "$CI_FILE" ] || WATCHED+=("$f")
+done < <(cut -f1 "$tmp/uses.tsv" | sort -u)
 [ ! -f "$MAKE_FILE" ] || WATCHED+=("$MAKE_FILE")
 
 if git rev-parse --is-inside-work-tree > /dev/null 2>&1 \
@@ -376,18 +478,56 @@ upgrade_tool() {
     esac
 }
 
+# Prints the commit SHA a repo's tag points at, following annotated tags
+# (tag objects) through to the commit, or nothing.
+tag_commit() {
+    local repo=$1 type sha hops=0
+    IFS=$'\t' read -r type sha <<< "$(gh api "repos/$repo/git/ref/tags/$2" \
+        --jq '.object | [.type, .sha] | @tsv' 2> /dev/null)" || true
+    while [ "${type:-}" = tag ] && [ "$hops" -lt 5 ]; do
+        IFS=$'\t' read -r type sha <<< "$(gh api "repos/$repo/git/tags/$sha" \
+            --jq '.object | [.type, .sha] | @tsv' 2> /dev/null)" || true
+        hops=$((hops + 1))
+    done
+    [ "${type:-}" != commit ] || printf '%s' "$sha"
+}
+
+# Moves every use of an action pinned at one version to a new release:
+# the SHA and its version comment, on each line it appears.
+upgrade_action() {
+    local action=$1 cur=$2 new=$3 repo sha locs new_sha loc
+    while IFS=$'\t' read -r _ repo sha _ locs; do
+        new_sha=$(tag_commit "$repo" "$new")
+        if ! [[ "$new_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "outdated: could not resolve $repo tag $new to a commit" >&2
+            return 1
+        fi
+        for loc in $locs; do
+            replace_on_line "${loc%:*}" "${loc##*:}" "$action@$sha # $cur" "$action@$new_sha # $new" || return 1
+        done
+    done < <(awk -F'\t' -v a="$action" -v v="$cur" '$1 == a && $4 == v' "$tmp/actions.tsv")
+}
+
 modules=()
 tools=0
+actions=0
 ran_vuln=false
 while IFS=$'\t' read -r kind name cur latest days; do
-    if [ "$kind" = mod ]; then
-        modules+=("$name@$latest")
-    else
-        # stdin is the chosen list, so keep the upgrade's commands off it.
-        step upgrade_tool "$name" "$cur" "$latest" < /dev/null
-        tools=$((tools + 1))
-        [ "$name" != govulncheck ] || ran_vuln=true
-    fi
+    # stdin is the chosen list, so keep the upgrades' commands off it.
+    case "$kind" in
+        mod)
+            modules+=("$name@$latest")
+            ;;
+        action)
+            step upgrade_action "$name" "$cur" "$latest" < /dev/null
+            actions=$((actions + 1))
+            ;;
+        *)
+            step upgrade_tool "$name" "$cur" "$latest" < /dev/null
+            tools=$((tools + 1))
+            [ "$name" != govulncheck ] || ran_vuln=true
+            ;;
+    esac
 done < "$tmp/chosen.tsv"
 
 if [ ${#modules[@]} -gt 0 ]; then
@@ -407,8 +547,8 @@ shown=()
 for f in "${WATCHED[@]}"; do [ "$f" = go.sum ] || shown+=("$f"); done
 git --no-pager diff -- "${shown[@]}"
 echo
-summary="Upgraded ${#modules[@]} module(s) and $tools tool pin(s)."
+summary="Upgraded ${#modules[@]} module(s), $tools tool pin(s) and $actions action(s)."
 [ ${#modules[@]} -eq 0 ] || summary="$summary Build and tests pass."
 [ "$ran_vuln" = false ] || summary="$summary make vuln passes at the new govulncheck."
 echo "${GREEN}$summary Nothing has been committed.${NC}"
-[ "$tools" -eq 0 ] || echo "CI proves the other tool pins on the next push."
+[ $((tools + actions)) -eq 0 ] || echo "CI proves the tool pins and actions on the next push."

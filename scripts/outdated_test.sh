@@ -36,7 +36,7 @@ fail() {
 # leave out whatever else is installed (a real gh in particular).
 TOOLS="$ROOT/tools"
 mkdir -p "$TOOLS"
-for bin in bash jq awk grep cut mktemp rm cat head tr wc git sed date; do
+for bin in bash jq awk grep cut mktemp rm cat head tr wc git sed date sort; do
     path=$(command -v "$bin") || { echo "outdated_test: $bin is required" >&2; exit 1; }
     ln -s "$path" "$TOOLS/$bin"
 done
@@ -66,13 +66,15 @@ echo "$*" >> "$STUB_DIR/make.log"
 EOF
 
 # Stub gh: "gh api PATH --jq FILTER" applies the filter to .stub/gh-PATH.json
-# (slashes as underscores), and fails like a logged-out gh without it.
+# (slashes as underscores, query string dropped), and fails like a
+# logged-out gh without it.
 STUB_GH="$ROOT/stub-gh"
 mkdir -p "$STUB_GH"
 cat > "$STUB_GH/gh" << 'EOF'
 #!/usr/bin/env bash
 [ "$1" = api ] && [ "$3" = --jq ] || { echo "stub gh: unexpected call: $*" >&2; exit 2; }
-file="$STUB_DIR/gh-${2//\//_}.json"
+api_path=${2%%\?*}
+file="$STUB_DIR/gh-${api_path//\//_}.json"
 [ -f "$file" ] || { echo "HTTP 401: Bad credentials" >&2; exit 1; }
 jq -r "$4" "$file"
 EOF
@@ -414,7 +416,7 @@ test_upgrade_all_edits_tool_pins_past_cooldown() {
     [ "$(wc -l < "$ci")" -eq "$lines" ] || fail "${FUNCNAME[0]}" "ci.yml line count changed"
     expect_logged "${FUNCNAME[0]}" "$d/.stub/make.log" "vuln"
     [ ! -f "$d/.stub/go.log" ] || fail "${FUNCNAME[0]}" "go get ran with no module chosen"
-    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s) and 3 tool pin(s)."
+    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s), 3 tool pin(s) and 0 action(s)."
     expect_out "${FUNCNAME[0]}" "make vuln passes at the new govulncheck."
     expect_out "${FUNCNAME[0]}" "+  SHELLCHECK_VERSION: v0.12.0"
 }
@@ -432,7 +434,7 @@ test_upgrade_pick_edits_only_chosen_pins() {
     expect_line "${FUNCNAME[0]}" "$ci" "          version: v2.16.0"
     expect_line "${FUNCNAME[0]}" "$ci" "  CADDY_SHACK_VERSION: 0.1.0"
     [ ! -f "$d/.stub/make.log" ] || fail "${FUNCNAME[0]}" "make vuln ran without a govulncheck bump"
-    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s) and 1 tool pin(s)."
+    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s), 1 tool pin(s) and 0 action(s)."
 }
 
 test_upgrade_modules_and_tools_together() {
@@ -448,7 +450,7 @@ test_upgrade_modules_and_tools_together() {
     expect_logged "${FUNCNAME[0]}" "$d/.stub/go.log" "mod tidy"
     expect_logged "${FUNCNAME[0]}" "$d/.stub/go.log" "test ./..."
     expect_logged "${FUNCNAME[0]}" "$d/.stub/make.log" "vuln"
-    expect_out "${FUNCNAME[0]}" "Upgraded 1 module(s) and 1 tool pin(s). Build and tests pass."
+    expect_out "${FUNCNAME[0]}" "Upgraded 1 module(s), 1 tool pin(s) and 0 action(s). Build and tests pass."
 }
 
 test_upgrade_shellcheck_without_digest_refuses() {
@@ -504,6 +506,187 @@ test_upgrade_none_changes_nothing() {
     expect_code "${FUNCNAME[0]}" 0
     expect_out "${FUNCNAME[0]}" "Nothing upgraded."
     expect_line "${FUNCNAME[0]}" "$ci" "  VULN_VERSION: v1.9.0"
+}
+
+# ---------------------------------------------------------------- Actions
+
+SHA_CO=3d3c42e5aac5ba805825da76410c181273ba90b1
+SHA_CQ=9b3254085494b55a0f7c4c2b3d2d52cc712ce370
+NEW_CO=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+NEW_CQ=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+TAG_OBJ=cccccccccccccccccccccccccccccccccccccccc
+
+# actions_fixture NAME: a fixture plus release.yml with two SHA-pinned
+# actions (checkout twice), a tag-pinned one and a local one, and a third
+# checkout use in ci.yml. Both repos report the pinned versions as latest.
+actions_fixture() {
+    local d
+    d=$(fixture "$1")
+    cat > "$d/.github/workflows/release.yml" << EOF
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@$SHA_CO # v7.0.1
+      - name: Upload
+        uses: github/codeql-action/upload-sarif@$SHA_CQ # v4.39.1
+        with:
+          sarif_file: results.sarif
+      - uses: actions/checkout@$SHA_CO # v7.0.1
+      - uses: actions/tag-pinned@v3
+      - uses: ./.github/actions/mine
+EOF
+    printf '      - uses: actions/checkout@%s # v7.0.1\n' "$SHA_CO" >> "$d/.github/workflows/ci.yml"
+    releases "$d" actions/checkout '["v7.0.1", "OLD", false, false]'
+    releases "$d" github/codeql-action '["v4.39.1", "OLD", false, false]'
+    echo "$d"
+}
+
+# releases DIR REPO ROW...: a releases listing; each ROW is a JSON array of
+# [tag, "OLD" or "NOW", prerelease, draft].
+releases() {
+    local dir=$1 repo=$2
+    shift 2
+    printf '%s\n' "$@" | jq -s --arg old "$OLD" --arg now "$NOW" \
+        'map({tag_name: .[0], published_at: (if .[1] == "OLD" then $old else $now end),
+              prerelease: .[2], draft: .[3]})' \
+        > "$dir/.stub/gh-repos_${repo//\//_}_releases.json"
+}
+
+# tag_ref DIR REPO TAG TYPE SHA: what git/ref/tags/TAG answers.
+tag_ref() {
+    printf '{"object": {"type": "%s", "sha": "%s"}}\n' "$4" "$5" \
+        > "$1/.stub/gh-repos_${2//\//_}_git_ref_tags_$3.json"
+}
+
+test_actions_all_current_reported() {
+    local d
+    d=$(actions_fixture accurrent)
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "actions/checkout                     v7.0.1     up to date"
+    expect_out "${FUNCNAME[0]}" "github/codeql-action/upload-sarif    v4.39.1    up to date"
+    expect_no_out "${FUNCNAME[0]}" "tag-pinned"
+    expect_no_out "${FUNCNAME[0]}" "actions/mine"
+    expect_no_out "${FUNCNAME[0]}" "Dependabot proposes"
+}
+
+test_actions_pick_highest_stable_semver_not_github_latest() {
+    local d
+    d=$(actions_fixture acsemver)
+    releases "$d" github/codeql-action \
+        '["codeql-bundle-v2.27.4", "NOW", false, false]' \
+        '["v3.39.3", "OLD", false, false]' \
+        '["v4.39.3", "OLD", false, false]' \
+        '["v4.40.0-rc1", "OLD", false, false]' \
+        '["v4.40.0", "OLD", true, false]' \
+        '["v4.41.0", "OLD", false, true]' \
+        '["v4.39.1", "OLD", false, false]' \
+        '["v4.9.9", "OLD", false, false]'
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "github/codeql-action/upload-sarif    v4.39.1    -> v4.39.3"
+    expect_out "${FUNCNAME[0]}" "pinned in .github/workflows/release.yml:6"
+    expect_out "${FUNCNAME[0]}" "Dependabot proposes these too"
+    expect_no_out "${FUNCNAME[0]}" "major version change"
+}
+
+test_actions_where_lists_every_file_and_line() {
+    local d
+    d=$(actions_fixture acwhere)
+    releases "$d" actions/checkout '["v7.1.0", "OLD", false, false]'
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "pinned in .github/workflows/ci.yml:18; .github/workflows/release.yml:4,9"
+}
+
+test_actions_major_change_noted() {
+    local d
+    d=$(actions_fixture acmajor)
+    releases "$d" actions/checkout '["v8.0.0", "OLD", false, false]'
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "actions/checkout                     v7.0.1     -> v8.0.0"
+    expect_out "${FUNCNAME[0]}" "major version change; read the release notes first."
+}
+
+test_actions_without_version_comment_not_compared() {
+    local d
+    d=$(fixture acnocomment)
+    printf '      - uses: actions/checkout@%s\n' "$SHA_CO" >> "$d/.github/workflows/ci.yml"
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "actions/checkout                     3d3c42e    no version comment after the SHA"
+}
+
+test_actions_skipped_without_gh() {
+    local d
+    d=$(actions_fixture acnogh)
+    run "$d" NO_GH=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "gh is not installed, skipping actions."
+}
+
+test_actions_none_pinned_says_so() {
+    local d
+    d=$(fixture acnone)
+    run "$d"
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "No SHA-pinned actions found in .github/workflows."
+}
+
+test_actions_upgrade_rewrites_every_use_and_derefs_annotated_tags() {
+    local d ci rel ci_lines rel_lines
+    d=$(actions_fixture acup)
+    releases "$d" actions/checkout '["v7.1.0", "OLD", false, false]'
+    releases "$d" github/codeql-action '["v4.39.3", "OLD", false, false]'
+    tag_ref "$d" actions/checkout v7.1.0 commit "$NEW_CO"
+    tag_ref "$d" github/codeql-action v4.39.3 tag "$TAG_OBJ"
+    printf '{"object": {"type": "commit", "sha": "%s"}}\n' "$NEW_CQ" \
+        > "$d/.stub/gh-repos_github_codeql-action_git_tags_$TAG_OBJ.json"
+    git_repo "$d"
+    ci="$d/.github/workflows/ci.yml"
+    rel="$d/.github/workflows/release.yml"
+    ci_lines=$(wc -l < "$ci")
+    rel_lines=$(wc -l < "$rel")
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_line "${FUNCNAME[0]}" "$ci" "      - uses: actions/checkout@$NEW_CO # v7.1.0"
+    [ "$(grep -c "actions/checkout@$NEW_CO # v7.1.0" "$rel")" -eq 2 ] \
+        || fail "${FUNCNAME[0]}" "release.yml does not have both checkout uses moved"
+    expect_line "${FUNCNAME[0]}" "$rel" "        uses: github/codeql-action/upload-sarif@$NEW_CQ # v4.39.3"
+    expect_line "${FUNCNAME[0]}" "$rel" "      - uses: actions/tag-pinned@v3"
+    [ "$(wc -l < "$ci")" -eq "$ci_lines" ] && [ "$(wc -l < "$rel")" -eq "$rel_lines" ] \
+        || fail "${FUNCNAME[0]}" "a workflow's line count changed"
+    [ ! -f "$d/.stub/make.log" ] || fail "${FUNCNAME[0]}" "make vuln ran without a govulncheck bump"
+    expect_out "${FUNCNAME[0]}" "Upgraded 0 module(s), 0 tool pin(s) and 2 action(s)."
+    expect_out "${FUNCNAME[0]}" ".github/workflows/release.yml | "
+}
+
+test_actions_upgrade_refuses_unresolvable_tag() {
+    local d rel
+    d=$(actions_fixture acnoref)
+    releases "$d" actions/checkout '["v7.1.0", "OLD", false, false]'
+    git_repo "$d"
+    rel="$d/.github/workflows/release.yml"
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 1
+    expect_err "${FUNCNAME[0]}" "could not resolve actions/checkout tag v7.1.0 to a commit"
+    expect_out "${FUNCNAME[0]}" "git checkout -- go.mod go.sum .github/workflows/ci.yml .github/workflows/release.yml Makefile"
+    expect_line "${FUNCNAME[0]}" "$rel" "      - uses: actions/checkout@$SHA_CO # v7.0.1"
+}
+
+test_actions_dirty_other_workflow_refuses_upgrade() {
+    local d
+    d=$(actions_fixture acdirty)
+    releases "$d" actions/checkout '["v7.1.0", "OLD", false, false]'
+    git_repo "$d"
+    printf '# local edit\n' >> "$d/.github/workflows/release.yml"
+    ANSWERS=$'a\n'
+    run "$d" OUTDATED_INTERACTIVE=1
+    expect_code "${FUNCNAME[0]}" 0
+    expect_out "${FUNCNAME[0]}" "has uncommitted changes"
 }
 
 for t in $(declare -F | awk '{print $3}' | grep '^test_'); do
